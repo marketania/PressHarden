@@ -40,7 +40,7 @@ _snapshot() {
 _cfg_get() {
   local -a keys=(AUTH_KEY SECURE_AUTH_KEY LOGGED_IN_KEY NONCE_KEY AUTH_SALT SECURE_AUTH_SALT LOGGED_IN_SALT NONCE_SALT)
   [ "$key" != cache ] || keys=(WP_CACHE_KEY_SALT)
-  "$wp_bin" config list "${keys[@]}" --strict --fields=key,value --format=json --config-file="$1" \
+  "$wp_bin" config list "${keys[@]}" --strict --format=json --config-file="$1" \
     --path="$site" --skip-plugins --skip-themes --skip-packages --no-color 2>/dev/null | \
     php "$(dirname "$0")/salt-values.php" "$key"
 }

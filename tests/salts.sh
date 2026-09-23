@@ -13,7 +13,7 @@ set -- "${args[@]}"
 case "$1 $2" in
  'config list')
   shift 2
-  php -r '$s=file_get_contents($argv[1]);$rows=[];foreach(array_slice($argv,2) as $k){if(preg_match("/define\\(\"".preg_quote($k,"/")."\", \"([^\"]+)\"\\)/",$s,$m))$rows[]=["key"=>$k,"value"=>$m[1]];}echo json_encode($rows);' "$cfg" "$@";;
+  php -r '$s=file_get_contents($argv[1]);$rows=[];foreach(array_slice($argv,2) as $k){if(preg_match("/define\\(\"".preg_quote($k,"/")."\", \"([^\"]+)\"\\)/",$s,$m))$rows[]=["name"=>$k,"value"=>$m[1],"type"=>"constant"];}echo json_encode($rows);' "$cfg" "$@";;
  'config shuffle-salts')
   [ "${TEST_FAIL_STAGE:-0}" != 1 ] || exit 42
   php -r '$keys=($argv[2]??"")==="WP_CACHE_KEY_SALT"?["WP_CACHE_KEY_SALT"]:["AUTH_KEY","SECURE_AUTH_KEY","LOGGED_IN_KEY","NONCE_KEY","AUTH_SALT","SECURE_AUTH_SALT","LOGGED_IN_SALT","NONCE_SALT"];$s=file_get_contents($argv[1]);foreach($keys as $k){$line="define(\"$k\", \"".bin2hex(random_bytes(32))."\");";$p="/^define\\(\"".preg_quote($k,"/")."\", .*$/m";$s=preg_match($p,$s)?preg_replace($p,$line,$s):$s."\n".$line."\n";}file_put_contents($argv[1],$s);' "$cfg" "${3:-}"
