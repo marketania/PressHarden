@@ -1,6 +1,6 @@
 # Transactional wp-config mutations
 
-PressHarden 1.1.18 uses one shared transaction layer for commands that change supported `wp-config.php` constants.
+PressHarden adapts the original PressWarden transaction layer for commands that change supported `wp-config.php` constants.
 
 Covered commands include:
 
@@ -19,7 +19,7 @@ A live `wp-config.php` should not be edited first and treated as safe merely bec
 
 For each selected WordPress installation PressHarden:
 
-1. Acquires a private per-site mutation lock using PHP `flock()`. A competing PressHarden mutation of the same site's config is refused rather than interleaved.
+1. Acquires a private per-site mutation lock using PHP `flock()` or the shell fallback's `flock` command. A competing PressHarden mutation of the same site's config is refused rather than interleaved.
 2. Requires `wp-config.php` to be a readable regular, non-symlink, single-link file within the selected WordPress installation and within the transaction size limit.
 3. Reads a stable snapshot and records its SHA-256, size, mode and filesystem identity. Where PHP can determine the effective UID, an owner mismatch is refused because atomic replacement could otherwise change ownership semantics.
 4. Checks whether the requested constant already has the exact requested value. An exact no-op returns successfully without creating a new backup transaction.
