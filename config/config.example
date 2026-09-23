@@ -1,0 +1,20 @@
+# PressHarden local configuration. Shell file; keep private and administrator-owned.
+# Explicitly exported PRESSHARDEN_* variables override these defaults.
+PRESSHARDEN_SCAN_ROOT=""
+PRESSHARDEN_DISCOVERY_DEPTH=8
+PRESSHARDEN_EXCLUDE=""
+PRESSHARDEN_DISCOVERY_CACHE_TTL=300
+PRESSHARDEN_SITE_ALIASES_FILE=""
+PRESSHARDEN_INTERACTIVE=1
+PRESSHARDEN_PROGRESS=auto
+# State/cache/reports default to isolated portable var/ or product-specific XDG paths.
+# PRESSHARDEN_STATE_DIR="/absolute/private/path"
+# PRESSHARDEN_CACHE_DIR="/absolute/private/cache"
+# PRESSHARDEN_REPORTS_DIR="/absolute/private/reports"
+# PRESSHARDEN_NOCOLOR=1
+# No automatic recommendations are applied. Web SAPI must be independently verified.
+PRESSHARDEN_PHP_WEB_SAPI=""
+PRESSHARDEN_PHP_USER_INI_FILENAME=".user.ini"
+PRESSHARDEN_PHP_DETAILS=0
+PRESSHARDEN_HOSTINGER_API_TOKEN=""
+PRESSHARDEN_HOSTINGER_API_TOKEN_FILE=""
