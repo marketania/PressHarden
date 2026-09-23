@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Opt-in integration against two fresh fixture sites and uniquely named CI DBs.
 # Never accepts an arbitrary site path or database name from the caller.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "Live fixture integration failed at line %s (exit %s).\n" "$LINENO" "$?" >&2' ERR
 [ "${PRESS_FAMILY_ALLOW_ISOLATED_WP_TEST:-0}" = 1 ] || { echo 'Live fixture integration requires explicit isolated-test opt-in.' >&2;exit 2; }
 [ -n "${PRESS_TEST_DB_PASSWORD:-}" ] || { echo 'Ephemeral local CI MySQL password required.' >&2;exit 2; }
 REPO=$(cd "$(dirname "$0")/.." && pwd -P);product=$(cat "$REPO/PRODUCT");program=${product,,};prefix=${product^^}
@@ -30,11 +31,11 @@ run(){ bash "$REPO/$program" "$@"; }
 run sites
 case "$program" in
  pressharden)
-  run lock a.example;[ "$(wp config get DISALLOW_FILE_MODS --path="$site")" = true ]
+  run lock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = true ]
   [ "$otherhash" = "$(sha256sum "$other/wp-config.php" | awk '{print $1}')" ]
-  run unlock a.example;[ "$(wp config get DISALLOW_FILE_MODS --path="$site")" = false ]
-  run wp-settings set editor disabled a.example;[ "$(wp config get DISALLOW_FILE_EDIT --path="$site")" = true ]
-  run wp-settings set debug-display disabled a.example;[ "$(wp config get WP_DEBUG_DISPLAY --path="$site")" = false ]
+  run unlock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = false ]
+  run wp-settings set editor disabled a.example;[ "$(wp config get DISALLOW_FILE_EDIT --format=json --path="$site")" = true ]
+  run wp-settings set debug-display disabled a.example;[ "$(wp config get WP_DEBUG_DISPLAY --format=json --path="$site")" = false ]
   run auto-updates core disabled a.example
   mkdir -p "$site/wp-content/plugins/press-fixture"
   printf '<?php\n/* Plugin Name: Isolated Press Fixture */\n' > "$site/wp-content/plugins/press-fixture/press-fixture.php"
