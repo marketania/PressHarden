@@ -7,9 +7,9 @@
 ./pressharden wp-settings all
 ```
 
-A single website shows the full grouped policy. A fleet target shows three compact baseline groups (Security, Updates, Runtime) and only websites that differ from the unique most-common value. A tied fleet value is reported as `MIXED`; PressHarden does not choose an arbitrary winner. Fast and Full include this same read-only policy check and do not modify settings.
+A single website shows the full grouped policy. A fleet target shows three compact baseline groups (Security, Updates, Runtime) and only websites that differ from the unique most-common value. A tied fleet value is reported as `MIXED`; PressHarden does not choose an arbitrary winner. `pressharden status` uses this same read-only policy dashboard. Security suites remain in PressWarden; PressHarden does not provide Fast or Full scan suites.
 
-The fleet baseline is a statistical comparison aid, not a security standard or proof that the common value is correct. Policy differences are informational. Existing dedicated security checks can still produce findings for settings such as debug exposure, dangerous repair/upload flags, or missing file-modification lockdown.
+The fleet baseline is a statistical comparison aid, not a security standard or proof that the common value is correct. Policy differences are informational. Use PressWarden separately to investigate security conditions such as debug exposure or suspicious configuration; this policy comparison is not a malware scan.
 
 ## What is shown
 
@@ -36,7 +36,7 @@ The policy collector runs once per selected WordPress installation through WP-CL
 
 ## Changing supported settings
 
-Changes use the same website-name / directory / `all` target resolver as `lock`, `unlock`, and `auto-updates`. They require explicit confirmation in an interactive session. PressHarden backs up each `wp-config.php`, applies the selected constant through WP-CLI, verifies the resulting value, and restores the backup when verification fails.
+Changes use the same website-name / directory / `all` target resolver as `lock`, `unlock`, and `auto-updates`. They require explicit confirmation in an interactive session. PressHarden backs up each `wp-config.php`, changes a private staged copy through WP-CLI, verifies it, and publishes only while the original source still matches. If final verification fails, rollback is attempted only when it can preserve concurrent external changes; otherwise recovery data is retained. See [configuration transactions](CONFIG-TRANSACTIONS.md).
 
 ```bash
 ./pressharden wp-settings set editor disabled example.com
