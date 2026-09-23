@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+set -uo pipefail
+# Internal target context is rebuilt for each CLI invocation, never inherited.
+unset _PH_TARGET_EXCLUSIONS
+
+# Resolve the real program directory even when the CLI is invoked through the
+# user-install symlink (for example ~/.local/bin/pressharden).
+_ph_self="${BASH_SOURCE[0]}"
+while [ -L "$_ph_self" ] && command -v readlink >/dev/null 2>&1; do
+  _ph_self_dir=$(cd -P "$(dirname "$_ph_self")" 2>/dev/null && pwd -P) || break
+  _ph_link=$(readlink "$_ph_self" 2>/dev/null) || break
+  case "$_ph_link" in /*) _ph_self="$_ph_link" ;; *) _ph_self="$_ph_self_dir/$_ph_link" ;; esac
+done
+PRESSHARDEN_DIR="$(cd -P "$(dirname "$_ph_self")" 2>/dev/null && pwd -P)"
+unset _ph_self _ph_self_dir _ph_link 2>/dev/null || true
+VERSION="$(cat "$PRESSHARDEN_DIR/VERSION" 2>/dev/null || printf 'unknown')"
+PRESSHARDEN_PORTABLE=0
+[ -f "$PRESSHARDEN_DIR/.pressharden-portable" ] && PRESSHARDEN_PORTABLE=1
+
+if [ "$PRESSHARDEN_PORTABLE" = 1 ]; then
+  CONFIG_FILE="${PRESSHARDEN_CONFIG_FILE:-$PRESSHARDEN_DIR/config/config}"
+else
+  CONFIG_FILE="${PRESSHARDEN_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/pressharden/config}"
+fi
+
+# New scans must not load half-replaced libraries during an update. Existing
+# running scans still need to finish before an administrator starts updating.
+if [ -e "$PRESSHARDEN_DIR/.pressharden-update.lock" ] || [ -L "$PRESSHARDEN_DIR/.pressharden-update.lock" ]; then
+  case "${1:-help}" in
+    update|help|-h|--help|-V|--version|version) : ;;
+    *) printf 'PressHarden update/recovery lock is present. Scans are blocked; see docs/UPDATING.md.\n' >&2; exit 2 ;;
+  esac
+fi
+
+# Config advice must work even with a broken config, without executing it.
+if [ "${1:-}" = config-new ]; then
+  command -v php >/dev/null 2>&1 || { printf 'config-new requires PHP CLI.\n' >&2; exit 2; }
+  exec php "$PRESSHARDEN_DIR/lib/config-options.php" "$PRESSHARDEN_DIR/config/config.example" "$CONFIG_FILE"
+fi
+
+# Preserve explicitly exported PressHarden/API values so one-shot environment
+# overrides win over persistent config values.
+_ph_env_overrides=$(env | grep -E '^(PRESSHARDEN_[A-Za-z0-9_]*)=' || true)
+[ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
+if [ -n "$_ph_env_overrides" ]; then
+  while IFS='=' read -r _ph_k _ph_v; do
+    case "$_ph_k" in PRESSHARDEN_*) printf -v "$_ph_k" '%s' "$_ph_v"; export "$_ph_k" ;; esac
+  done <<< "$_ph_env_overrides"
+fi
+unset _ph_env_overrides _ph_k _ph_v 2>/dev/null || true
+export PRESSHARDEN_PORTABLE
+
+usage() {
+  cat <<EOF
+PressHarden v$VERSION — WordPress hardening and security policy
+
+Usage: pressharden COMMAND [arguments] [website|directory|all]
+  status / wp-settings             Read-only normalized WordPress policy
+  wp-settings set SETTING VALUE    Transactional wp-config change
+  lock / unlock / lock-status      WordPress file-modification restrictions
+  file-mods status|on|off           Advanced equivalent locking interface
+  auto-updates status              Core/plugin/theme preferences and blockers
+  auto-updates core minor|major|disabled
+  auto-updates plugins enable|disable
+  auto-updates themes enable|disable
+  php status                       CLI vs declared local/web PHP configuration
+  php inspect                      Detailed PHP posture and optional provider view
+  php set SETTING VALUE            Guarded .user.ini change; web effect is not assumed
+  salts rotate auth|cache          Atomic authentication/cache namespace rotation
+  sites [directory] / doctor [target]
+  config / config-new / update / version / help
+
+Settings: editor, cron, recovery, environment, development, debug, debug-display,
+          debug-log, script-debug, savequeries, force-ssl-admin, alternate-cron.
+Boolean policy values: enabled|disabled. See docs/WP-SETTINGS.md for other values.
+Omitted target selects the configured fleet; explicit all does the same.
+An unresolved, excluded, duplicate or explicitly empty target is always an error.
+No malware scan, cache purge, DB cleanup or sibling installation is required.
+EOF
+}
+show_config() {
+  local state cache
+  if [ "$PRESSHARDEN_PORTABLE" = 1 ]; then
+    state="${PRESSHARDEN_STATE_DIR:-$PRESSHARDEN_DIR/var}"; cache="${PRESSHARDEN_CACHE_DIR:-$PRESSHARDEN_DIR/var/cache}"
+  else
+    state="${PRESSHARDEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/pressharden}"; cache="${PRESSHARDEN_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pressharden}"
+  fi
+  printf 'PressHarden v%s\nProgram: %s\nConfig: %s\nRoot: %s\nState: %s\nCache: %s\nInteractive: %s\n' "$VERSION" "$PRESSHARDEN_DIR" "$CONFIG_FILE" "$(resolve_root '')" "$state" "$cache" "${PRESSHARDEN_INTERACTIVE:-1}"
+  printf 'Optional provider credentials: %s\n' "$([ -n "${PRESSHARDEN_HOSTINGER_API_TOKEN:-}" ] && printf configured || printf 'not configured')"
+}
+
+resolve_root() {
+  local explicit="${1:-}" c parent
+  if [ -n "$explicit" ]; then
+    c="$explicit"
+  elif [ -n "${PRESSHARDEN_SCAN_ROOT:-}" ]; then
+    c="$PRESSHARDEN_SCAN_ROOT"
+  elif [ "$PRESSHARDEN_PORTABLE" = 1 ]; then
+    parent=$(cd "$PRESSHARDEN_DIR/.." 2>/dev/null && pwd -P || dirname "$PRESSHARDEN_DIR")
+    if [ -d "$parent/domains" ]; then c="$parent/domains"
+    elif [ -d "$parent/public_html" ]; then c="$parent/public_html"
+    else c="$parent"
+    fi
+  elif [ -d "$HOME/domains" ]; then c="$HOME/domains"
+  elif [ -d "$HOME/public_html" ]; then c="$HOME/public_html"
+  elif [ -d /var/www ]; then c=/var/www
+  else c="$PWD"
+  fi
+  if command -v php >/dev/null 2>&1; then php "$PRESSHARDEN_DIR/lib/target-path.php" "$PWD" "$c" || return 2; fi
+  if command -v realpath >/dev/null 2>&1; then realpath "$c" 2>/dev/null || printf '%s' "$c"; else (cd "$c" 2>/dev/null && pwd -P) || printf '%s' "$c"; fi
+}
+
+# One resolver for every command accepting a site/directory. A failed name must
+# never become an empty ROOT (which would silently broaden the operation).
+select_target() {
+  local target="${1:-}" result scope line kind value first
+  [ "$#" -le 1 ] || { printf 'Use one website name, directory, or all.\n' >&2; return 2; }
+  [ "$#" -eq 0 ] || [ -n "$target" ] || { printf "Explicit target cannot be empty.\n" >&2; return 2; }
+  [ -z "$target" ] || [ ! -L "$target" ] || { printf "Symlink target refused.\n" >&2; return 2; }
+  TARGET_NAME=''; TARGET_COUNT=''
+  case "$target" in
+    ''|all) ROOT=$(resolve_root '') || return 2 ;;
+    /*|./*|../*|.|..|~/*) ROOT=$(resolve_root "$target") || return 2 ;;
+    *)
+      if [[ "$target" != *.* && "$target" != *://* ]] && [ -d "$target" ]; then
+        ROOT=$(resolve_root "$target") || return 2
+      else
+        scope=$(resolve_root '') || return 2
+        result=$(bash "$PRESSHARDEN_DIR/lib/site-target.sh" "$scope" "$target") || return 2
+        first=${result%%$'\n'*}
+        IFS=$'\t' read -r ROOT TARGET_NAME TARGET_COUNT <<< "$first"
+        _PH_TARGET_EXCLUSIONS=''
+        while IFS=$'\t' read -r kind value; do
+          [ "$kind" != E ] || _PH_TARGET_EXCLUSIONS+="$value"$'\n'
+        done <<< "$result"
+        export _PH_TARGET_EXCLUSIONS
+        [ -d "$ROOT" ] && [ -n "$TARGET_NAME" ] || return 2
+        printf 'Target: %s' "$TARGET_NAME" >&2
+        [ "${TARGET_COUNT:-1}" -le 1 ] || printf ' (%s installations, including nested sites)' "$TARGET_COUNT" >&2
+        printf '\n' >&2
+      fi ;;
+  esac
+  export ROOT PRESSHARDEN_DIR
+}
+
+confirm_fleet_file_mods() {
+  local action="$1" root="$2" verb ans=''
+  [ "$action" = on ] && verb='LOCK' || verb='UNLOCK'
+  if [ "${PRESSHARDEN_INTERACTIVE:-1}" = "0" ]; then return 0; fi
+  if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    if [ -n "${TARGET_NAME:-}" ]; then
+      printf '\n  %s %s (%s installation(s))? [y/N]: ' "$verb" "$TARGET_NAME" "${TARGET_COUNT:-1}" > /dev/tty
+    else
+      printf '\n  %s all discovered websites under %s? [y/N]: ' "$verb" "$root" > /dev/tty
+    fi
+    IFS= read -r ans < /dev/tty || ans=''
+    case "$ans" in y|Y|yes|YES) return 0 ;; *) printf 'Cancelled.\n'; return 1 ;; esac
+  fi
+  printf 'Refusing fleet %s without an interactive terminal. Set PRESSHARDEN_INTERACTIVE=0 to run intentionally in automation.\n' "${verb,,}" >&2
+  return 1
+}
+
+confirm_auto_update_change() {
+  local area="$1" value="$2" root="$3" ans=''
+  if [ "${PRESSHARDEN_INTERACTIVE:-1}" = "0" ]; then return 0; fi
+  if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    if [ -n "${TARGET_NAME:-}" ]; then
+      printf '\n  Set %s auto-updates to %s for %s (%s installation(s))? [y/N]: ' "$area" "$value" "$TARGET_NAME" "${TARGET_COUNT:-1}" > /dev/tty
+    else
+      printf '\n  Set %s auto-updates to %s for all discovered websites under %s? [y/N]: ' "$area" "$value" "$root" > /dev/tty
+    fi
+    IFS= read -r ans < /dev/tty || ans=''
+    case "$ans" in y|Y|yes|YES) return 0 ;; *) printf 'Cancelled.\n'; return 1 ;; esac
+  fi
+  printf 'Refusing fleet auto-update change without an interactive terminal. Set PRESSHARDEN_INTERACTIVE=0 to run intentionally in automation.\n' >&2
+  return 1
+}
+
+confirm_wp_setting_change() {
+  local setting="$1" value="$2" root="$3" ans=''
+  if [ "${PRESSHARDEN_INTERACTIVE:-1}" = "0" ]; then return 0; fi
+  if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    if [ -n "${TARGET_NAME:-}" ]; then
+      printf '\n  Set %s=%s for %s (%s installation(s))? [y/N]: ' "$setting" "$value" "$TARGET_NAME" "${TARGET_COUNT:-1}" > /dev/tty
+    else
+      printf '\n  Set %s=%s for all discovered websites under %s? [y/N]: ' "$setting" "$value" "$root" > /dev/tty
+    fi
+    IFS= read -r ans < /dev/tty || ans=''
+    case "$ans" in y|Y|yes|YES) return 0 ;; *) printf 'Cancelled.\n'; return 1 ;; esac
+  fi
+  printf 'Refusing fleet wp-settings change without an interactive terminal. Set PRESSHARDEN_INTERACTIVE=0 to run intentionally in automation.\n' >&2
+  return 1
+}
+
+
+cmd="${1:-help}"; [ "$#" -gt 0 ] && shift || true
+case "$cmd" in
+  -V|--version|version) printf 'PressHarden %s\n' "$VERSION" ;;
+  help|-h|--help) usage ;;
+  config) show_config ;;
+  sites)
+    [ "$#" -le 1 ] || { printf 'Usage: ./pressharden sites [directory]\n' >&2; exit 2; }
+    ROOT=$(resolve_root "${1:-}")
+    exec bash "$PRESSHARDEN_DIR/lib/site-target.sh" "$ROOT" --list
+    ;;
+  update)
+    # shellcheck disable=SC1090
+    . "$PRESSHARDEN_DIR/lib/update.sh"
+    ph_update
+    ;;
+  lock|unlock)
+    select_target "$@" || exit 2
+    action=on; [ "$cmd" = unlock ] && action=off
+    confirm_fleet_file_mods "$action" "$ROOT" || exit 1
+    export PRESSHARDEN_INTERACTIVE=0
+    exec bash "$PRESSHARDEN_DIR/checks/file-mods.sh" "$action"
+    ;;
+  lock-status)
+    select_target "$@" || exit 2
+    exec bash "$PRESSHARDEN_DIR/checks/file-mods.sh" status
+    ;;
+  wp-settings)
+    sub="${1:-status}"
+    if [ "$sub" = status ]; then
+      shift || true
+      [ "$#" -le 1 ] || { printf 'Usage: ./pressharden wp-settings [website|directory|all]\n' >&2; exit 2; }
+      select_target "$@" || exit 2
+      exec bash "$PRESSHARDEN_DIR/checks/wp-settings.sh" status
+    elif [ "$sub" = set ]; then
+      shift || true
+      setting="${1:-}"; value="${2:-}"; target="${3:-}"
+      [ "$#" -ge 2 ] && [ "$#" -le 3 ] || { printf 'Usage: ./pressharden wp-settings set SETTING VALUE [website|directory|all]\n' >&2; exit 2; }
+      case "$setting" in
+        editor|cron|recovery|debug|debug-display|debug-log|script-debug|savequeries|force-ssl-admin|alternate-cron)
+          case "$value" in enabled|disabled) : ;; *) printf '%s must be enabled or disabled.\n' "$setting" >&2; exit 2 ;; esac ;;
+        environment)
+          case "$value" in production|staging|development|local) : ;; *) printf 'environment must be production, staging, development, or local.\n' >&2; exit 2 ;; esac ;;
+        development)
+          case "$value" in disabled|core|plugin|theme|all) : ;; *) printf 'development must be disabled, core, plugin, theme, or all.\n' >&2; exit 2 ;; esac ;;
+        *) printf 'Supported wp-settings setters: editor, cron, recovery, environment, development, debug, force-ssl-admin, alternate-cron.\n' >&2; exit 2 ;;
+      esac
+      [ "$#" -ne 3 ] || [ -n "$target" ] || { printf "Empty target refused.\n" >&2; exit 2; }
+      if [ -n "$target" ]; then select_target "$target" || exit 2; else select_target || exit 2; fi
+      confirm_wp_setting_change "$setting" "$value" "$ROOT" || exit 1
+      export PRESSHARDEN_POLICY_APPLY=1 PRESSHARDEN_INTERACTIVE=0
+      exec bash "$PRESSHARDEN_DIR/checks/wp-settings.sh" set "$setting" "$value"
+    else
+      [ "$#" -le 1 ] || { printf 'Usage: ./pressharden wp-settings [website|directory|all]\n' >&2; exit 2; }
+      select_target "$@" || exit 2
+      exec bash "$PRESSHARDEN_DIR/checks/wp-settings.sh" status
+    fi
+    ;;
+  auto-updates|auto-update)
+    area="${1:-status}"; [ "$#" -gt 0 ] && shift || true
+    case "$area" in
+      status)
+        [ "$#" -le 1 ] || { printf 'Usage: ./pressharden auto-updates status [website|directory|all]\n' >&2; exit 2; }
+        select_target "$@" || exit 2
+        exec bash "$PRESSHARDEN_DIR/checks/wp-auto-updates.sh" status
+        ;;
+      core)
+        value="${1:-}"; [ "$#" -gt 0 ] && shift || true
+        case "$value" in minor|major|disabled) : ;; disable) value=disabled ;; *) printf 'Core policy must be minor, major, or disabled.\n' >&2; exit 2 ;; esac
+        [ "$#" -le 1 ] || { printf 'Usage: ./pressharden auto-updates core minor|major|disabled [website|directory|all]\n' >&2; exit 2; }
+        select_target "$@" || exit 2
+        confirm_auto_update_change CORE "$value" "$ROOT" || exit 1
+        export PRESSHARDEN_INTERACTIVE=0
+        exec bash "$PRESSHARDEN_DIR/checks/wp-auto-updates.sh" core "$value"
+        ;;
+      plugins|themes)
+        value="${1:-}"; [ "$#" -gt 0 ] && shift || true
+        case "$value" in enable|disable) : ;; *) printf '%s policy must be enable or disable.\n' "$area" >&2; exit 2 ;; esac
+        [ "$#" -le 1 ] || { printf 'Usage: ./pressharden auto-updates %s enable|disable [website|directory|all]\n' "$area" >&2; exit 2; }
+        select_target "$@" || exit 2
+        confirm_auto_update_change "${area^^}" "$value" "$ROOT" || exit 1
+        export PRESSHARDEN_INTERACTIVE=0
+        exec bash "$PRESSHARDEN_DIR/checks/wp-auto-updates.sh" "$area" "$value"
+        ;;
+      *) printf 'Use auto-updates status, core, plugins, or themes.\n' >&2; exit 2 ;;
+    esac
+    ;;
+  file-mods)
+    action="${1:-status}"; [ "$#" -gt 0 ] && shift || true
+    select_target "$@" || exit 2
+    exec bash "$PRESSHARDEN_DIR/checks/file-mods.sh" "$action"
+    ;;
+  status)
+    select_target "$@" || exit 2
+    exec bash "$PRESSHARDEN_DIR/checks/wp-settings.sh" status ;;
+  doctor)
+    select_target "$@" || exit 2
+    exec bash "$PRESSHARDEN_DIR/checks/doctor.sh" ;;
+  php)
+    sub="${1:-status}"; [ "$#" -gt 0 ] && shift || true
+    case "$sub" in
+      status) select_target "$@" || exit 2; exec bash "$PRESSHARDEN_DIR/checks/php-policy.sh" status ;;
+      inspect)
+        if [ "${*: -1}" = --details ]; then export PRESSHARDEN_PHP_DETAILS=1; set -- "${@:1:$#-1}"; fi
+        select_target "$@" || exit 2; exec bash "$PRESSHARDEN_DIR/checks/php-runtime.sh" ;;
+      set)
+        [ "$#" -ge 2 ] && [ "$#" -le 3 ] || { printf 'Usage: pressharden php set SETTING VALUE [target]\n' >&2; exit 2; }
+        setting="$1"; value="$2"; shift 2
+        select_target "$@" || exit 2
+        exec bash "$PRESSHARDEN_DIR/checks/php-policy.sh" set "$setting" "$value" ;;
+      *) printf 'Use php status, php inspect or php set.\n' >&2; exit 2 ;;
+    esac ;;
+  salts)
+    [ "$#" -ge 2 ] && [ "$#" -le 3 ] && [ "$1" = rotate ] || { printf 'Usage: pressharden salts rotate auth|cache [target]\n' >&2; exit 2; }
+    kind="$2"; shift 2
+    case "$kind" in auth|cache) ;; *) printf 'Use auth or cache.\n' >&2; exit 2 ;; esac
+    select_target "$@" || exit 2
+    exec bash "$PRESSHARDEN_DIR/checks/salts.sh" "$kind" ;;
+  *) printf "Unknown PressHarden command: %s\n" "$cmd" >&2; exit 2 ;;
+esac

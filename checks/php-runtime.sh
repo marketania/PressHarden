@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+NAME=php-runtime; DESC="PHP lifecycle, hardening, and environment consistency"
+SCAN_DOES="Audits global PHP runtime security, local per-site PHP overrides, Wordfence WAF prepend rules, and optional Hostinger per-site PHP version/options/extensions drift."
+SCAN_WHY="PHP runs below WordPress; version, limits, timezone, extensions, and override drift can create security/reliability gaps across a fleet."
+. "$(cd "$(dirname "$0")/.." && pwd)/lib/_lib.sh"
+_ini(){ php -r 'echo (($v=ini_get($argv[1]))===false)?"":$v;' "$1" 2>/dev/null; }
+_on(){ case "${1,,}" in 1|on|yes|true|stdout|stderr) return 0;; *) return 1;; esac; }
+_show(){ [ -n "${1:-}" ] && printf '%s' "$1" || printf unset; }
+_latest(){ local mm="$1" d="$PRESSHARDEN_CACHE_DIR/php-runtime" f t="${PRESSHARDEN_PHP_RELEASE_CACHE_TTL:-86400}" n m=0 tmp v=''; mkdir -p "$d"; f="$d/latest-$mm.json"; n=$(date +%s); [ -s "$f" ] && m=$(stat -c %Y "$f" 2>/dev/null||echo 0); case "$m" in ''|*[!0-9]*)m=0;;esac; if [ ! -s "$f" ]||[ $((n-m)) -gt "$t" ]||[ "${PRESSHARDEN_PHP_RELEASE_REFRESH:-0}" = 1 ];then tmp=$(tmpf); if command -v curl>/dev/null;then curl -fsSL --max-time 8 "https://www.php.net/releases/index.php?json&version=$mm&max=1" -o "$tmp" 2>/dev/null||true;elif command -v wget>/dev/null;then wget -q -T 8 -O "$tmp" "https://www.php.net/releases/index.php?json&version=$mm&max=1" 2>/dev/null||true;fi; v=$(php -r '$j=@json_decode(@file_get_contents($argv[1]),true);if(is_array($j)&&$j)echo array_key_first($j);' "$tmp" 2>/dev/null||true); [ -n "$v" ]&&mv -f "$tmp" "$f"||rm -f "$tmp";fi; [ -s "$f" ]&&php -r '$j=@json_decode(@file_get_contents($argv[1]),true);if(is_array($j)&&$j)echo array_key_first($j);' "$f" 2>/dev/null||true; }
+_lifecycle(){ local mm="$1" y=$(date +%Y%m%d) a=0 s=0; case "$mm" in 8.2)a=20241231;s=20261231;;8.3)a=20251231;s=20271231;;8.4)a=20261231;s=20281231;;8.5)a=20271231;s=20291231;;esac; if [ "$s" -eq 0 ];then case "$mm" in 8.[0-1]|7.*|5.*)issue "PHP $mm" "end-of-life branch";;*)flag "PHP $mm" "outside bundled lifecycle table";;esac;elif [ "$y" -le "$a" ];then printf '    %s✓ ACTIVE SUPPORT%s  PHP %s • active through %s-%s-%s • security through %s-%s-%s\n' "$G" "$X" "$ver" "${a:0:4}" "${a:4:2}" "${a:6:2}" "${s:0:4}" "${s:4:2}" "${s:6:2}";elif [ "$y" -le "$s" ];then flag "PHP $ver" "security-fixes-only; support ends ${s:0:4}-${s:4:2}-${s:6:2}";else issue "PHP $ver" "end-of-life; support ended ${s:0:4}-${s:4:2}-${s:6:2}";fi; }
+_site_root(){ local w="$1" r;for r in "${SCAN_ROOTS[@]}";do [ "$(site_label_from_root "$r")" = "$w" ]&&{ printf '%s' "$r";return;};done;return 1; }
+_wordfence_ok(){ local l="$1" v="$2" r t;r=$(_site_root "$l" 2>/dev/null||true);[ -n "$r" ]||return 1;t=${v#\'};t=${t%\'};t=${t#\"};t=${t%\"};[ "$t" = "$r/wordfence-waf.php" ]&&[ -f "$t" ]&&[ -d "$r/wp-content/plugins/wordfence" ]&&grep -Eq 'Wordfence|WFWAF|wfWAF|wordfenceClass' "$t" 2>/dev/null; }
+_local_overrides(){ local r l f q k v;for r in "${SCAN_ROOTS[@]}";do l=$(site_label_from_root "$r");f="$r/.htaccess";if [ -f "$f" ];then grep -Eio 'application/x-lsphp[0-9]{2,3}' "$f" 2>/dev/null|sort -u|while read -r q;do printf 'VERSION\t%s\t%s\t%s\n' "$l" "${q#*lsphp}" "$f";done;fi;for f in "$r/.user.ini" "$r/php.ini";do [ -f "$f" ]||continue;while IFS='=' read -r k v;do k=$(printf '%s' "$k"|sed 's/^[[:space:]]*//;s/[[:space:]]*$//');v=$(printf '%s' "$v"|sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]]*[;#].*$//');case "$k" in memory_limit|upload_max_filesize|post_max_size|max_execution_time|max_input_time|max_input_vars|max_file_uploads|date.timezone|allow_url_fopen|allow_url_include|display_errors|display_startup_errors|log_errors|expose_php|auto_prepend_file|auto_append_file|disable_functions|session.*|opcache.*|realpath_cache_*|output_buffering|zlib.output_compression)printf 'OPTION\t%s\t%s\t%s\t%s\n' "$l" "$k" "$v" "$f";;esac;done<"$f";done;f="$r/.htaccess";[ -f "$f" ]||continue;q=$(tmpf);grep -Ei '^[[:space:]]*php_(value|flag)[[:space:]]+' "$f" 2>/dev/null > "$q"||true;while read -r _ k v _;do case "$k" in memory_limit|upload_max_filesize|post_max_size|max_execution_time|max_input_time|max_input_vars|max_file_uploads|date.timezone|allow_url_fopen|allow_url_include|display_errors|display_startup_errors|log_errors|expose_php|auto_prepend_file|auto_append_file|disable_functions)printf 'OPTION\t%s\t%s\t%s\t%s\n' "$l" "$k" "$v" "$f";;esac;done<"$q";rm -f "$q";done; }
+_hostinger_token(){ [ -n "${PRESSHARDEN_HOSTINGER_API_TOKEN:-}" ]&&{ printf '%s' "$PRESSHARDEN_HOSTINGER_API_TOKEN";return;};local f="${PRESSHARDEN_HOSTINGER_API_TOKEN_FILE:-$HOME/.config/pressharden/hostinger-api-token}" m;[ -r "$f" ]||return 1;m=$(stat -c %a "$f" 2>/dev/null||true);case "$m" in 600|400|'')tr -d '\r\n'<"$f";;*)return 1;;esac; }
+_hostinger_fetch(){ local d="$1" u="$2" a="$3" c="$4" t="${PRESSHARDEN_HOSTINGER_PHP_CACHE_TTL:-21600}" n m=0 x url;n=$(date +%s);[ -s "$c" ]&&m=$(stat -c %Y "$c" 2>/dev/null||echo 0);case "$m" in ''|*[!0-9]*)m=0;;esac;if [ "${PRESSHARDEN_HOSTINGER_PHP_REFRESH:-0}" != 1 ]&&[ -s "$c" ]&&[ $((n-m)) -le "$t" ]&&php -r '$j=@json_decode(@file_get_contents($argv[1]),true);exit(is_array($j)&&(isset($j["php_version"])||isset($j["php_version_full"]))?0:1);' "$c" 2>/dev/null;then printf reused;return;fi;x=$(tmpf);url="https://developers.hostinger.com/api/hosting/v1/accounts/$u/websites/$d/php/details";if curl --config "$a" --url "$url" --output "$x" >/dev/null 2>&1&&php -r '$j=@json_decode(@file_get_contents($argv[1]),true);exit(is_array($j)&&(isset($j["php_version"])||isset($j["php_version_full"]))?0:1);' "$x" 2>/dev/null;then mv -f "$x" "$c";printf fetched;return;fi;rm -f "$x";printf unavailable;return 1; }
+_hostinger_summary(){ php "$PRESSHARDEN_DIR/lib/php-environment.php" "$1"; }
+_hostinger_display_summary(){
+  local list="$1" out details kind text failed=0
+  out=$(tmpf); details=$(tmpf)
+  if ! _hostinger_summary "$list" > "$out"; then
+    rm -f "$out" "$details"
+    PH_PHP_ENV_FAILED=1
+    note 'PHP environment comparison incomplete; no consistency verdict.'
+    return 2
+  fi
+  while IFS='|' read -r kind text; do
+    case "$kind" in
+      INFO) note "$text" ;;
+      REVIEW) flag "$text" ;;
+      DETAIL)
+        printf '%s\n' "$text" >> "$details" || failed=1
+        [ "${PRESSHARDEN_PHP_DETAILS:-0}" != 1 ] || note "$text"
+        ;;
+      *) failed=1 ;;
+    esac
+  done < "$out"
+  if [ "$failed" -ne 0 ] || ! _save_details "$details" info; then
+    ph_report_failure
+  elif [ -s "$details" ]; then
+    note "Full PHP settings and per-site values saved in: $DETAIL_LOG"
+  fi
+  rm -f "$out" "$details"
+}
+_hostinger_consistency(){
+  sec "Hostinger per-site PHP environment consistency" "optional integration • compact profile + differences by website"
+  discover_sites;local tok user auth cache list d state fetched=0 reused=0 unavailable=0 out rec a b c e f g localf other wafok bad root label installed=0 wok=0 missing=0 miss=''
+  if ! tok=$(_hostinger_token 2>/dev/null)||[ -z "$tok" ];then printf '    %sℹ OPTIONAL%s  Hostinger API not configured; exact hPanel per-site comparison is skipped\n' "$C" "$X";elif ! command -v curl>/dev/null;then flag "HOSTINGER API" "curl unavailable; optional enrichment skipped";else
+    user="${PRESSHARDEN_HOSTINGER_USERNAME:-$(basename "$HOME")}";cache="$PRESSHARDEN_CACHE_DIR/hostinger-php";mkdir -p "$cache";auth=$(tmpf);printf 'silent\nshow-error\nfail\nlocation\nconnect-timeout = 8\nmax-time = 25\nheader = "Authorization: Bearer %s"\nheader = "Accept: application/json"\n' "$tok">"$auth";chmod 600 "$auth";list=$(tmpf);:>"$list"
+    for d in "${DISCOVERED_DOMAINS[@]}";do state=$(_hostinger_fetch "$d" "$user" "$auth" "$cache/$d.json"||true);case "$state" in fetched)fetched=$((fetched+1));;reused)reused=$((reused+1));;*)unavailable=$((unavailable+1));continue;;esac;printf '%s\t%s\n' "$d" "$cache/$d.json">>"$list";done;rm -f "$auth";printf '    %sℹ API COVERAGE%s  %s fetched • %s reused • %s unavailable\n' "$C" "$X" "$fetched" "$reused" "$unavailable";_hostinger_display_summary "$list" || true
+    rm -f "$list"
+  fi
+  localf=$(tmpf);other=$(tmpf);wafok=$(tmpf);bad=$(tmpf);_local_overrides>"$localf";while IFS=$'\t' read -r rec a b c e;do [ -n "$rec" ]||continue;if [ "$rec" = OPTION ]&&[ "${b,,}" = auto_prepend_file ];then if _wordfence_ok "$a" "$c";then printf '%s\n' "$a">>"$wafok";continue;fi;case "${c,,}" in *wordfence-waf.php*)printf '%s\t%s\t%s\n' "$a" "$c" "$e">>"$bad";continue;;esac;fi;printf '%s\t%s\t%s\t%s\t%s\n' "$rec" "$a" "$b" "$c" "$e">>"$other";done<"$localf";sort -u -o "$wafok" "$wafok" 2>/dev/null||true
+  for root in "${WP_SITES[@]}";do [ -d "$root/wp-content/plugins/wordfence" ]||continue;installed=$((installed+1));label=$(site_domain "$root");if grep -Fxq "$label" "$wafok" 2>/dev/null;then wok=$((wok+1));else missing=$((missing+1));miss="${miss}${miss:+, }$label";fi;done
+  if [ "$installed" -gt 0 ];then [ "$missing" -eq 0 ]&&printf '    %s✓ WORDFENCE WAF%s  %s/%s validated local auto_prepend_file target(s)\n' "$G" "$X" "$wok" "$installed"||flag "WORDFENCE WAF" "$wok/$installed validated; missing/unrecognized: $miss";fi
+  while IFS=$'\t' read -r a c e;do [ -n "$a" ]&&flag "WORDFENCE WAF PATH" "$a › $c (${e#"$ROOT"/})";done<"$bad"
+  local n;n=$(grep -c . "$other" 2>/dev/null||true);n=${n:-0};if [ "$n" -eq 0 ];then printf '    %s✓ OTHER LOCAL OVERRIDES%s  no non-Wordfence PHP/version overrides found\n' "$G" "$X";else printf '    %s⚠ OTHER LOCAL OVERRIDES%s  %s explicit override record(s)\n' "$Y" "$X" "$n";while IFS=$'\t' read -r rec a b c e;do case "$rec" in VERSION)flag "$a" "explicit PHP handler $b via ${e#"$ROOT"/}";;OPTION)printf '    %s⚠ OVERRIDE%s  %s › %s=%s %s(%s)%s\n' "$Y" "$X" "$a" "$b" "$c" "$D" "${e#"$ROOT"/}" "$X";;esac;done<"$other";fi;rm -f "$localf" "$other" "$wafok" "$bad";note "Local override checks run on every host; Hostinger API data is optional enrichment only."
+}
+main(){
+  banner;command -v php>/dev/null 2>&1||die "php CLI not found";local ver mm latest sapi ini scanned allowi allowf pre app exp dl ffi pharro pharhash ass exargs disabled fn dis='' avail='' openb tmp upt userini userttl disp start logs strict http secure same only
+  ver=$(php -r 'echo PHP_VERSION;');mm=$(printf '%s' "$ver"|awk -F. '{print $1"."$2}')
+  sec "PHP support lifecycle + patch currency" "CLI baseline; web/FPM can differ by site";_lifecycle "$mm";latest=$(_latest "$mm");if [ -n "$latest" ];then if php -r 'exit(version_compare($argv[1],$argv[2],"<")?0:1);' "$ver" "$latest";then flag "PATCH BEHIND" "PHP $ver installed • latest upstream $mm is $latest";elif [ "$ver" = "$latest" ];then ok "PATCH LEVEL" "PHP $ver matches latest upstream $mm";else printf '    %sℹ PATCH%s  installed %s • upstream reports %s\n' "$C" "$X" "$ver" "$latest";fi;else note "php.net patch lookup unavailable; lifecycle check still completed";fi
+  sec "CLI configuration source";sapi=$(php -r 'echo PHP_SAPI;');ini=$(php -r 'echo php_ini_loaded_file()?php_ini_loaded_file():"none";');scanned=$(php -r '$s=php_ini_scanned_files();if(!$s){echo"none";exit;}$a=array_filter(array_map("trim",explode(",",$s)));echo count($a)." additional file(s)";');printf '    %sℹ SAPI%s      %s\n    %sℹ php.ini%s   %s\n    %sℹ SCANNED%s   %s\n' "$C" "$X" "$sapi" "$C" "$X" "$ini" "$C" "$X" "$scanned"
+  allowi=$(_ini allow_url_include);allowf=$(_ini allow_url_fopen);pre=$(_ini auto_prepend_file);app=$(_ini auto_append_file);exp=$(_ini expose_php);dl=$(_ini enable_dl)
+  sec "High-impact PHP execution + include controls";_on "$allowi"&&issue "allow_url_include" "ON"||ok "allow_url_include" "OFF";[ -n "$pre" ]&&issue "auto_prepend_file" "$pre"||ok "auto_prepend_file" "unset";[ -n "$app" ]&&issue "auto_append_file" "$app"||ok "auto_append_file" "unset";_on "$exp"&&flag "expose_php" "ON"||ok "expose_php" "OFF";_on "$dl"&&flag "enable_dl" "ON"||ok "enable_dl" "OFF";printf '    %sℹ URL FOPEN%s allow_url_fopen=%s\n' "$C" "$X" "$(_show "$allowf")"
+  sec "Low-level runtime hardening";ffi=$(_ini ffi.enable);if php -r 'exit(extension_loaded("FFI")?0:1);';then case "${ffi,,}" in false|0|off)ok "ffi.enable" "OFF";;preload|'')ok "ffi.enable" "preload/restricted";;true|1|on)flag "ffi.enable" "unrestricted";;*)note "ffi.enable=$(_show "$ffi")";;esac;else ok "FFI" "extension not loaded";fi;pharro=$(_ini phar.readonly);pharhash=$(_ini phar.require_hash);if php -r 'exit(extension_loaded("Phar")?0:1);';then _on "$pharro"&&ok "phar.readonly" "ON"||flag "phar.readonly" "OFF";note "phar.require_hash=$(_show "$pharhash")";fi;ass=$(_ini zend.assertions);case "$ass" in -1)ok "zend.assertions" "-1 production";;1)flag "zend.assertions" "1 development assertions enabled";;*)note "zend.assertions=$(_show "$ass")";;esac;exargs=$(_ini zend.exception_ignore_args);_on "$exargs"&&ok "exception args" "hidden"||note "zend.exception_ignore_args=$(_show "$exargs")"
+  sec "Process-execution function surface" "inventory only";disabled=$(_ini disable_functions);for fn in exec system shell_exec passthru proc_open proc_close popen pcntl_exec;do case ",$(printf '%s' "$disabled"|tr -d '[:space:]')," in *",$fn,"*)dis="${dis}${dis:+, }$fn";;*)avail="${avail}${avail:+, }$fn";;esac;done;[ -n "$dis" ]&&printf '    %s✓ DISABLED%s  %s\n' "$G" "$X" "$dis"||note "no watched process functions are disabled";[ -n "$avail" ]&&printf '    %sℹ AVAILABLE%s %s\n' "$C" "$X" "$avail";note "availability is not automatically a vulnerability"
+  sec "Filesystem + per-directory INI isolation";openb=$(_ini open_basedir);tmp=$(_ini sys_temp_dir);upt=$(_ini upload_tmp_dir);userini=$(_ini user_ini.filename);userttl=$(_ini user_ini.cache_ttl);[ -n "$openb" ]&&printf '    %sℹ OPEN_BASEDIR%s %s\n' "$C" "$X" "$openb"||note "open_basedir unset (defense-in-depth only)";printf '    %sℹ TEMP%s sys_temp_dir=%s • upload_tmp_dir=%s\n    %sℹ USER INI%s filename=%s • cache_ttl=%s\n' "$C" "$X" "$(_show "$tmp")" "$(_show "$upt")" "$C" "$X" "$(_show "$userini")" "$(_show "$userttl")"
+  sec "Error + diagnostic disclosure posture" "CLI informational";disp=$(_ini display_errors);start=$(_ini display_startup_errors);logs=$(_ini log_errors);printf '    %sℹ CLI ONLY%s display_errors=%s • display_startup_errors=%s • log_errors=%s\n' "$C" "$X" "$(_show "$disp")" "$(_show "$start")" "$(_show "$logs")";note "confcheck handles explicit per-site production overrides"
+  sec "PHP session security defaults" "informational; WordPress core auth is not PHP sessions";strict=$(_ini session.use_strict_mode);http=$(_ini session.cookie_httponly);secure=$(_ini session.cookie_secure);same=$(_ini session.cookie_samesite);only=$(_ini session.use_only_cookies);printf '    %sℹ SESSION%s strict=%s • httponly=%s • secure=%s • samesite=%s • only_cookies=%s\n' "$C" "$X" "$(_show "$strict")" "$(_show "$http")" "$(_show "$secure")" "$(_show "$same")" "$(_show "$only")"
+  _hostinger_consistency
+  [ "${PH_PHP_ENV_FAILED:-0}" -eq 0 ] || return 2
+  finish
+}
+run_logged php-runtime
