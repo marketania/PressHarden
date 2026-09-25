@@ -1,5 +1,9 @@
 # PressHarden
 
+<p align="center">
+  <img src="docs/assets/press-tool-family.webp" alt="PressWarden blue security shield, PressHarden green policy shield, and PressGarden gold maintenance shield" width="700">
+</p>
+
 Fleet-scale **WordPress hardening and security policy management** from the shell.
 
 Owns desired-state configuration, not malware scans, vulnerability feeds, cache management or database cleanup.
@@ -7,6 +11,10 @@ Owns desired-state configuration, not malware scans, vulnerability feeds, cache 
 PressHarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.
 
 ## Install this distribution
+
+**Production runtime:** use an upstream-supported, security-patched PHP version. PHP 8.2–8.5 are supported at the September 2026 audit date; retained PHP 7.4 syntax tests are not a recommendation to deploy end-of-life PHP.
+
+Read the [public-readiness audit and rollout checklist](docs/PUBLIC-READINESS.md) before fleet-wide use. Start on one staging site, verify recovery, and run as the site owner rather than root.
 
 Requirements: Linux, Bash 4+, PHP CLI 7.4+, coreutils/find/tar; WP-CLI and its database clients for WordPress/database operations. Some operations need `flock`. Use only the installer published in this tool’s own repository. For a reviewed release, `curl -fsSLo install.sh https://raw.githubusercontent.com/marketania/PressHarden/main/install.sh` followed by `bash install.sh` installs this tool alone.
 

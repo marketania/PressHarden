@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 # Internal target context is rebuilt for each CLI invocation, never inherited.
-unset _PH_TARGET_EXCLUSIONS
+unset _PH_TARGET_EXCLUSIONS _PH_FLEET_ROOT
 
 # Resolve the real program directory even when the CLI is invoked through the
 # user-install symlink (for example ~/.local/bin/pressharden).
@@ -118,6 +118,8 @@ select_target() {
   [ "$#" -eq 0 ] || [ -n "$target" ] || { printf "Explicit target cannot be empty.\n" >&2; return 2; }
   [ -z "$target" ] || [ ! -L "$target" ] || { printf "Symlink target refused.\n" >&2; return 2; }
   TARGET_NAME=''; TARGET_COUNT=''
+  _PH_FLEET_ROOT=$(resolve_root '') || return 2
+  export _PH_FLEET_ROOT
   case "$target" in
     ''|all) ROOT=$(resolve_root '') || return 2 ;;
     /*|./*|../*|.|..|~/*) ROOT=$(resolve_root "$target") || return 2 ;;
@@ -200,7 +202,10 @@ case "$cmd" in
   config) show_config ;;
   sites)
     [ "$#" -le 1 ] || { printf 'Usage: ./pressharden sites [directory]\n' >&2; exit 2; }
-    ROOT=$(resolve_root "${1:-}")
+    [ "$#" -eq 0 ] || [ -n "$1" ] || { printf 'Explicit target cannot be empty.\n' >&2; exit 2; }
+    _PH_FLEET_ROOT=$(resolve_root '') || exit 2
+    export _PH_FLEET_ROOT
+    ROOT=$(resolve_root "${1:-}") || exit 2
     exec bash "$PRESSHARDEN_DIR/lib/site-target.sh" "$ROOT" --list
     ;;
   update)
