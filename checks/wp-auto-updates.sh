@@ -188,6 +188,9 @@ _set_items() {
   require_wp; discover_sites
   ph_mutation_preflight || return 2
   for site in "${WP_SITES[@]}"; do
+    # Lock the complete snapshot/change/readback/recovery cycle.
+    ph_unlock_site
+    ph_lock_site "$site" || { fail=1; continue; }
     label=$(site_label_from_root "$site"); root=$(ph_safe_backup_dir "$site" auto-updates) || { fail=1; continue; }; saved="$root/$type-enabled.txt"
     _enabled_names "$site" "$type" > "$saved" || { printf '✖ %s: could not snapshot %s auto-update preferences\n' "$label" "${singular,,}"; fail=1; continue; }; chmod 600 "$saved" 2>/dev/null || true
     counts=$(_item_counts "$site" "$type" 2>/dev/null) || { printf '✖ %s: could not read %s auto-update preferences; unchanged\n' "$label" "${singular,,}"; fail=1; continue; }
@@ -216,6 +219,7 @@ _set_items() {
     change_word=DISABLED; [ "$VALUE" = enable ] && change_word=ENABLED
     printf '✓ %s: %s auto-updates %s (%s/%s enabled)' "$label" "$singular" "$change_word" "$enabled" "$total"; [ -z "$block" ] || printf ' (configured, but blocked by %s)' "$block"; printf '\n'
   done
+  ph_unlock_site
   [ "$fail" -eq 0 ] || return 2
 }
 
