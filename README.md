@@ -10,6 +10,15 @@ Owns desired-state configuration, not malware scans, vulnerability feeds, cache 
 
 PressHarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.
 
+## Other Press tools
+
+PressHarden is part of the **Press Tool Family**. Other standalone tools are available for related WordPress administration tasks:
+
+- **[PressWarden](https://github.com/marketania/PressWarden)** — WordPress security auditing, malware and vulnerability detection, compromise investigation, integrity checks, and incident response.
+- **[PressGarden](https://github.com/marketania/PressGarden)** — WordPress maintenance, database health, cleanup, caching, LiteSpeed management, and performance operations.
+
+Use PressHarden when you need to **configure, harden, and enforce a desired secure WordPress/PHP posture**. The sibling tools are independent applications, not required dependencies.
+
 ## Install this distribution
 
 **Production runtime:** use an upstream-supported, security-patched PHP version. PHP 8.2–8.5 are supported at the September 2026 audit date; retained PHP 7.4 syntax tests are not a recommendation to deploy end-of-life PHP.
