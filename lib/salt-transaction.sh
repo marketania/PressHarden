@@ -56,9 +56,16 @@ IFS='|' read -r orig_hash orig_dev orig_ino orig_size orig_mode orig_uid orig_gi
 [ "$orig_uid" = "$(id -u)" ] || fail 'wp-config.php owner differs from the current account; mutation refused'
 
 php "$(dirname "$0")/ops-safety.php" scope "$state_dir" "$site" || fail 'unsafe state/site scope'
-[ ! -L "$state_dir" ] || fail 'unsafe state directory'
-mkdir -p -- "$state_dir/config-transactions/locks" 2>/dev/null || fail 'cannot create config transaction state directory'
-chmod 700 "$state_dir" "$state_dir/config-transactions" "$state_dir/config-transactions/locks" 2>/dev/null || true
+_state_directories() {
+  local dir
+  for dir in "$state_dir" "$state_dir/config-transactions" "$state_dir/config-transactions/locks"; do
+    php "$(dirname "$0")/ops-safety.php" directory "$dir" >/dev/null || fail 'unsafe transaction state directory; inspect ownership, permissions and links'
+  done
+}
+# Validate every existing parent before mkdir/chmod can follow a link. The
+# shared primitive creates missing directories privately and refuses unsafe ones.
+_state_directories
+chmod 700 "$state_dir" "$state_dir/config-transactions" "$state_dir/config-transactions/locks" 2>/dev/null || fail 'cannot protect transaction state directories'
 command -v flock >/dev/null 2>&1 || fail 'shell transaction fallback requires the flock command'
 lock_hash=$(printf '%s' "$site" | sha256sum | awk '{print $1}')
 lock_file="$state_dir/config-transactions/locks/$lock_hash.lock"
@@ -84,6 +91,9 @@ original=$(_snapshot "$config") || fail 'wp-config.php changed while acquiring t
 IFS='|' read -r orig_hash orig_dev orig_ino orig_size orig_mode orig_uid orig_gid orig_nlink <<< "$original"
 [ "$orig_uid" = "$(id -u)" ] || fail 'wp-config.php owner differs from the current account; mutation refused'
 
+# Revalidate parent paths after lock acquisition and provider reads, before
+# reserving recovery files. This is not isolation from a hostile same-user writer.
+_state_directories
 tx_id="tx-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}${RANDOM}"
 tx_dir="$state_dir/config-transactions/$tx_id"
 mkdir -- "$tx_dir" 2>/dev/null || fail 'cannot create config transaction directory'

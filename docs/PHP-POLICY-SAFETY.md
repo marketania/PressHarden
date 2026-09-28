@@ -1,8 +1,9 @@
 # PHP policy semantics, preview and recovery
 
-This checkpoint concerns local `.user.ini` policy only. It does not change
-WordPress update preferences, authentication salts, the wp-config transaction
-engines, server configuration or other Press tools.
+The original checkpoint below concerns local `.user.ini` policy. The continuation
+section adds state-directory validation to the shell wp-config and salt transaction
+engines. It does not change chosen WordPress update policies, server configuration
+or other Press tools.
 
 ## Safe first use
 
@@ -79,3 +80,46 @@ refinement brief is not fully certified by this focused repair.
 - [PHP INI parsing](https://www.php.net/manual/en/function.parse-ini-string.php): reserved values and RAW parsing for untrusted input; avoid constant/environment expansion.
 - [Per-directory INI](https://www.php.net/manual/en/configuration.file.per-user.php): CGI/FastCGI scope, filename and caching restrictions; do not claim CLI equals web.
 - [PHP file metadata](https://www.php.net/manual/en/function.clearstatcache.php): refresh metadata before source-identity comparisons.
+
+
+## Shell transaction state-directory continuation
+
+The shell configuration and salt engines checked the configured state root but
+then used `mkdir -p` and `chmod` on descendant transaction directories. Existing
+`config-transactions` or `locks` symlinks could redirect private recovery writes
+or permission changes into another directory, including a website directory.
+A linked path must not be repaired or followed just because its parent is private.
+
+Both engines now use the existing inert filesystem-safety primitive for every
+state/transaction/lock directory before creation or permission changes, and
+revalidate those parents after acquiring the writer lock and reading provider
+values. Existing symlinks, non-directory files, foreign ownership and writable
+unsafe directories are refused. Missing directories are created privately.
+A valid private state tree retains the original backup, staged syntax/readback,
+conditional publication and recovery behavior. User configuration, link targets
+and unrelated directory contents are not changed on these refusals.
+
+For an `unsafe transaction state directory` error, inspect the configured private
+state path, ownership, permissions and links as the site administrator. Do not
+silently delete a link, discard existing backups or blindly chmod an unrelated
+location. Preserve the data, move it to a verified private nonsymlink state tree
+outside every webroot, and re-run preflight only after resolving the cause.
+This validation is not an atomic directory-handle transaction or isolation from
+a hostile process running as the same operating-system account. Stop concurrent
+administrative writers and retain independent recoverable backups.
+
+Ten real-filesystem regression methods cover both shell engines, linked root and
+lock parents, dangling links, writable/non-directory parents and unchanged valid
+backup behavior when staging fails. The original state-directory implementation failed six cases. A separate
+deterministic publication-race regression reproduced an additional unsafe
+redirection in the shell config engine; publication now uses noclobber allocation,
+matching the existing salt engine. The test forces a symlink after the existence
+check and verifies neither the linked destination nor live config is changed. No real secrets are used. Existing salt rotation and PHP transaction tests
+remain separate. The live CI fixture additionally runs real WP-CLI through the
+shell configuration engine and confirms both shell paths refuse a linked recovery
+parent without changing site configuration or the unrelated directory. Only fresh
+opt-in disposable fixture sites/databases are used; consult exact-head CI for the
+actual integration result.
+
+No public version, release, tag, production website, installed tool or automatic
+update preference is changed by this continuation.
