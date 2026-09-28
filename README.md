@@ -83,6 +83,8 @@ Automatic-update policy manages preferences rather than immediately updating Wor
 
 ## PHP configuration: configured is not effective
 
+The local PHP status and `.user.ini` writer do not bootstrap WordPress or require WP-CLI. Changes preview current/proposed literals before per-site approval, preserve verified private recovery copies, and refuse stale or complex configuration. See [PHP policy semantics and recovery](docs/PHP-POLICY-SAFETY.md).
+
 `php status` distinguishes CLI values, root `.user.ini` values, contextual recommendations, and **UNKNOWN web-effective values**. `php inspect` preserves the existing detailed PHP/optional hosting-provider comparison. Neither automatically applies recommendations.
 
 `php set DIRECTIVE VALUE [target]` only writes a bounded, unambiguous, supported root `.user.ini`. First verify the actual web SAPI and export `PRESSHARDEN_PHP_WEB_SAPI=fpm-fcgi` or `cgi-fcgi`. Nondefault/disabled user-ini filenames and INI_SYSTEM-only directives are refused, not simulated. The operator attestation is not a measurement.
