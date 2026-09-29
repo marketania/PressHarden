@@ -123,3 +123,41 @@ actual integration result.
 
 No public version, release, tag, production website, installed tool or automatic
 update preference is changed by this continuation.
+
+## WordPress policy dashboard input and output
+
+`wp-settings` now validates each returned snapshot before copying it into the
+normalized policy log. The returned site must equal the requested site label;
+the complete allowlisted field set, scalar types and size limits must pass.
+Unexpected top-level/policy fields are rejected, not saved as normalized data.
+Provider stderr causes incomplete collection and is not copied into logs. An
+unavailable/malformed snapshot is not a MIXED policy or a consistent fleet.
+Valid snapshots from other sites remain available in the private detail report.
+
+The summarizer validates all rows before emitting a dashboard. Duplicate site
+labels, missing fields, invalid values, NUL-only records, unsafe linked files and
+oversized sources fail with INCOMPLETE/2. A readable single-link regular file is
+required, with source/handle identity checks around bounded reads. Bounds are
+64 KiB per record, 1,024 bytes per value, 16 MiB per fleet input and 10,000 sites.
+Whitespace-only lines remain permitted. No unbounded line read is used.
+
+Dashboard values escape terminal control and Unicode directional characters;
+ordinary Unicode remains readable. Raw normalized JSON values remain JSON-escaped
+in the private detail log. Majority and tie semantics are unchanged for complete
+records; tied values remain MIXED rather than arbitrarily choosing a baseline.
+Fleet consistency is descriptive, not proof of secure configuration.
+
+This is schema/label validation, not authentication of a compromised WordPress
+bootstrap or proof that arbitrary text in an allowlisted value is non-secret.
+The existing collector still executes WordPress and MU-plugin code. The change
+bounds interpretation, not all provider runtime or capture-disk consumption, and
+does not alter any WordPress policy. Source identity checks are not an atomic
+snapshot against every same-account concurrent writer. Keep logs private and use
+an isolated copy when bootstrap cannot be trusted.
+
+Tests use actual helper/CLI subprocesses, inert snapshots and real temporary files,
+including a generated runtime-collector record. Original majority/outlier/tie
+assertions remain; their abbreviated old fixtures now include the missing collector
+fields. PHP's [JSON decoder](https://www.php.net/manual/en/function.json-decode.php)
+and [bounded stream reads](https://www.php.net/manual/en/function.stream-get-contents.php)
+define the parsing contracts; no broader standards certification is claimed.
