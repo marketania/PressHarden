@@ -9,7 +9,7 @@ php "$helper" status "$T/site" > "$T/status"; grep -q UNKNOWN "$T/status"
 # No attested web SAPI: fail with no write.
 refused php "$helper" set "$T/state" "$T/site" display_errors Off
 [ ! -e "$T/site/.user.ini" ]
-export PRESSHARDEN_PHP_WEB_SAPI=fpm-fcgi
+export PRESSHARDEN_PHP_WEB_SAPI=fpm-fcgi PRESSHARDEN_INTERACTIVE=0
 set +e; php "$helper" set "$T/state" "$T/site" display_errors Off > "$T/changed"; rc=$?; set -e
 [ "$rc" -eq 1 ]; grep -q 'display_errors = 0' "$T/site/.user.ini"; grep -q 'WEB EFFECT UNVERIFIED' "$T/changed"
 find "$T/state/backups/php-policy" -name original.user.ini | grep -q .
