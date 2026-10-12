@@ -6,6 +6,17 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 base='{"file_mods":"LOCKED","editor":"DISABLED","core_updates":"MINOR","plugin_updates":"ENABLED","plugin_updates_count":"3/3","theme_updates":"DISABLED","theme_updates_count":"0/2","updater":"BLOCKED","updater_blockers":"DISALLOW_FILE_MODS","cron":"ENABLED","recovery":"ENABLED","environment":"PRODUCTION","development":"DISABLED","debug":"DISABLED","wp_cache":"ENABLED"}'
 for s in a.com b.com c.com; do printf '{"site":"%s","policy":%s}\n' "$s" "$base" >> "$T/rows"; done
 printf '%s\n' '{"site":"other.com","policy":{"file_mods":"UNLOCKED","editor":"ENABLED","core_updates":"MAJOR","plugin_updates":"PARTIAL","plugin_updates_count":"1/3","theme_updates":"DISABLED","theme_updates_count":"0/2","updater":"AVAILABLE","updater_blockers":"","cron":"DISABLED","recovery":"ENABLED","environment":"STAGING","development":"DISABLED","debug":"ENABLED","wp_cache":"ENABLED"}}' >> "$T/rows"
+# Supply the remaining collector fields in these deliberately compact fixture rows.
+# Existing values and all original majority/outlier/tie assertions stay unchanged.
+complete_fixture() {
+  php -r '
+    $defaults=array_fill_keys(explode(" ", "debug_log debug_display savequeries script_debug force_ssl_admin revisions trash_days autosave_interval wp_memory_limit wp_max_memory_limit db_charset db_collate home_override siteurl_override cookie_domain fs_method allow_repair unfiltered_uploads unfiltered_html http_block_external"), "DISABLED");
+    $lines=file($argv[1], FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES);$out="";
+    foreach($lines as $line){$row=json_decode($line,true);$row["policy"]+=$defaults;$out.=json_encode($row)."\n";}
+    file_put_contents($argv[1],$out);
+  ' "$1"
+}
+complete_fixture "$T/rows"
 php "$REPO/lib/wp-policy-summary.php" "$T/rows" fleet > "$T/out"
 grep -q $'BASELINE\tSecurity\t.*File modifications=LOCKED (3/4)' "$T/out"
 grep -q $'BASELINE\tUpdates\t.*Core auto-updates=MINOR (3/4)' "$T/out"
@@ -18,6 +29,7 @@ cat > "$T/tie" <<'EOF'
 {"site":"one.com","policy":{"file_mods":"LOCKED","editor":"DISABLED","core_updates":"MINOR","plugin_updates":"ENABLED","plugin_updates_count":"1/1","theme_updates":"DISABLED","theme_updates_count":"0/1","updater":"BLOCKED","updater_blockers":"DISALLOW_FILE_MODS","cron":"ENABLED","recovery":"ENABLED","environment":"PRODUCTION","development":"DISABLED","debug":"DISABLED","wp_cache":"ENABLED"}}
 {"site":"two.com","policy":{"file_mods":"UNLOCKED","editor":"ENABLED","core_updates":"MAJOR","plugin_updates":"DISABLED","plugin_updates_count":"0/1","theme_updates":"ENABLED","theme_updates_count":"1/1","updater":"AVAILABLE","updater_blockers":"","cron":"DISABLED","recovery":"DISABLED","environment":"STAGING","development":"PLUGIN","debug":"ENABLED","wp_cache":"DISABLED"}}
 EOF
+complete_fixture "$T/tie"
 php "$REPO/lib/wp-policy-summary.php" "$T/tie" fleet > "$T/tie-out"
 grep -q $'MIXED\tFile modifications: LOCKED=1, UNLOCKED=1' "$T/tie-out"
 grep -q 'File modifications=MIXED' "$T/tie-out"

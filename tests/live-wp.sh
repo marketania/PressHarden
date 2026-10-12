@@ -34,6 +34,29 @@ case "$program" in
   run lock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = true ]
   [ "$otherhash" = "$(sha256sum "$other/wp-config.php" | awk '{print $1}')" ]
   run unlock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = false ]
+  # Exercise the actual shared-host shell transaction path, not only the PHP
+  # engine normally selected on this runner. Only this disposable config changes.
+  bash "$REPO/lib/config-transaction-shell.sh" set "$T/state" "$site" a.example DISALLOW_FILE_MODS bool true "$(command -v wp)" > "$T/shell-lock"
+  grep -q $'OK\tCHANGED' "$T/shell-lock"
+  [ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = true ]
+  bash "$REPO/lib/config-transaction-shell.sh" set "$T/state" "$site" a.example DISALLOW_FILE_MODS bool false "$(command -v wp)" > "$T/shell-unlock"
+  [ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = false ]
+  mkdir -m 700 "$T/linked-state"
+  mkdir -m 755 "$site/unrelated-recovery"
+  ln -s "$site/unrelated-recovery" "$T/linked-state/config-transactions"
+  current_hash=$(sha256sum "$site/wp-config.php" | awk '{print $1}')
+  rc=0
+  bash "$REPO/lib/config-transaction-shell.sh" set "$T/linked-state" "$site" a.example DISALLOW_FILE_MODS bool true "$(command -v wp)" > "$T/refused-shell" 2>&1 || rc=$?
+  [ "$rc" -eq 2 ];grep -q 'unsafe transaction state directory' "$T/refused-shell"
+  rc=0
+  bash "$REPO/lib/salt-transaction.sh" rotate "$T/linked-state" "$site" a.example auth "$(command -v wp)" > "$T/refused-salts" 2>&1 || rc=$?
+  [ "$rc" -eq 2 ];grep -q 'unsafe transaction state directory' "$T/refused-salts"
+  [ "$current_hash" = "$(sha256sum "$site/wp-config.php" | awk '{print $1}')" ]
+  [ "$(stat -c %a "$site/unrelated-recovery")" = 755 ]
+  [ -z "$(find "$site/unrelated-recovery" -mindepth 1 -print -quit)" ]
+  rm -- "$T/linked-state/config-transactions"
+  rmdir -- "$T/linked-state" "$site/unrelated-recovery"
+  printf 'Real shell config/salt engines refuse linked state before creating recovery files.\n'
   run wp-settings set editor disabled a.example;[ "$(wp config get DISALLOW_FILE_EDIT --format=json --path="$site")" = true ]
   run wp-settings set debug-display disabled a.example;[ "$(wp config get WP_DEBUG_DISPLAY --format=json --path="$site")" = false ]
   run auto-updates core disabled a.example

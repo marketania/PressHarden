@@ -1,0 +1,19 @@
+{
+  "upstream_commit": "aa7817961f5cfc8b06d8beef8d7051040f059616",
+  "tree": "35143dd3ead607483efd0cbc61f35674c8b330ec",
+  "files": {
+    "LICENSE": "7c5654e169385c8ccfa9caf58efb309fc8b5e2fb4a2b27c152101deb70fd6039",
+    "PROVENANCE.md": "b0eb9a8794dcf2c5d4d381e7a267c811c6cb3520c0b9ece08ee11353b978d0f3",
+    "docs/assets/press-tool-family.webp": "b233844db9fa3ba73b9478b3617ca3bcb080988cc2d081faa71523da8d2f4110"
+  },
+  "readme_protected_lines": [
+    "  <img src=\"docs/assets/press-tool-family.webp\" alt=\"PressWarden blue security shield, PressHarden green policy shield, and PressGarden gold maintenance shield\" width=\"700\">",
+    "PressHarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.",
+    "PressHarden is part of the **Press Tool Family**. Other standalone tools are available for related WordPress administration tasks:",
+    "- **[PressWarden](https://github.com/marketania/PressWarden)** — WordPress security auditing, malware and vulnerability detection, compromise investigation, integrity checks, and incident response.",
+    "- **[PressGarden](https://github.com/marketania/PressGarden)** — WordPress maintenance, database health, cleanup, caching, LiteSpeed management, and performance operations.",
+    "Requirements: Linux, Bash 4+, PHP CLI 7.4+, coreutils/find/tar; WP-CLI and its database clients for WordPress/database operations. Some operations need `flock`. Use only the installer published in this tool’s own repository. For a reviewed release, `curl -fsSLo install.sh https://raw.githubusercontent.com/marketania/PressHarden/main/install.sh` followed by `bash install.sh` installs this tool alone.",
+    "`./pressharden update` targets `marketania/PressHarden`, never a sibling and never threat feeds. For isolated validation or recovery, test/update with a local validated distribution archive:",
+    "Separated from PressWarden 1.1.24 at `63adec182b4d3a20dbd5e24daa9b9fa0e98510b8`. See [provenance](PROVENANCE.md), [migration mapping](docs/MIGRATION.md), and [MIT license](LICENSE). PressWarden remains the security investigation tool; PressGarden handles routine maintenance and performance. Siblings are optional alternatives for other responsibilities, not dependencies."
+  ]
+}

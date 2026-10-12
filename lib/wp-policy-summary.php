@@ -1,44 +1,15 @@
 <?php
 /** Summarize normalized, allowlisted PressHarden WordPress policy snapshots. */
 
-if ($argc < 2) {
-    fwrite(STDERR, "usage: wp-policy-summary.php ROWS_JSONL [single|fleet]\n");
-    exit(2);
-}
-$path = $argv[1];
-$mode = isset($argv[2]) ? $argv[2] : 'fleet';
-if (!is_file($path) || !is_readable($path)) {
-    fwrite(STDERR, "INCOMPLETE: policy snapshot file is unavailable\n");
-    exit(2);
-}
-
-$rows = array();
-$fh = fopen($path, 'rb');
-if (!$fh) exit(2);
-while (($line = fgets($fh)) !== false) {
-    $line = trim($line);
-    if ($line === '') continue;
-    $row = json_decode($line, true);
-    if (!is_array($row) || !isset($row['site'], $row['policy']) || !is_string($row['site']) || !is_array($row['policy'])) {
-        fclose($fh);
-        fwrite(STDERR, "INCOMPLETE: malformed policy snapshot\n");
-        exit(2);
-    }
-    if (!preg_match('/^[A-Za-z0-9._\/-]+$/', $row['site'])) {
-        fclose($fh);
-        fwrite(STDERR, "INCOMPLETE: unsafe policy site label\n");
-        exit(2);
-    }
-    $rows[] = $row;
-    if (count($rows) > 10000) {
-        fclose($fh);
-        fwrite(STDERR, "INCOMPLETE: policy snapshot row limit exceeded\n");
-        exit(2);
-    }
-}
-fclose($fh);
-if (!$rows) {
-    fwrite(STDERR, "INCOMPLETE: no policy snapshots\n");
+require_once __DIR__.'/wp-policy-input.php';
+try {
+    if ($argc < 2 || $argc > 3) throw new RuntimeException('Invalid summary request');
+    $mode = $argv[2] ?? 'fleet';
+    if (!in_array($mode, ['single','fleet'], true)) throw new RuntimeException('Invalid summary mode');
+    $rows = ph_policy_read_rows($argv[1]);
+    if ($mode === 'single' && count($rows) !== 1) throw new RuntimeException('Expected one site');
+} catch (Throwable $e) {
+    fwrite(STDERR, "INCOMPLETE: policy snapshots could not be verified; no dashboard produced.\n");
     exit(2);
 }
 
@@ -113,7 +84,7 @@ function pwps_mode_value($rows, $key) {
     return array($tie ? null : $top, $topCount, $tie, $counts);
 }
 function pwps_safe_piece($s) {
-    return str_replace(array("\t", "\r", "\n"), ' ', (string) $s);
+    return ph_policy_safe_text($s);
 }
 
 if ($mode === 'single') {

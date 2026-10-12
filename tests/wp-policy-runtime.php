@@ -85,3 +85,8 @@ foreach (array_keys($p) as $k) {
     }
 }
 echo "WordPress policy runtime allowlist/effective-state checks: PASS\n";
+
+// Collector and inert logging validator must agree on the full allowlisted schema.
+require_once $repo . '/lib/wp-policy-input.php';
+if (ph_policy_validate_record($out, 'example.com') !== $row) throw new RuntimeException('collector/input schema mismatch');
+echo "Runtime collector and policy-input schema agree PASS\n";

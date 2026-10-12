@@ -77,11 +77,15 @@ Configuration is trusted shell input. Keep it administrator-owned and mode 600. 
 
 Both the original PHP configuration transaction engine and the shell fallback are retained. Private staging, value and PHP syntax validation, source identity checks, conditional atomic publication, readback and safe rollback protect `wp-config.php`. No live `sed` editing is used. Backups/metadata are in `state/config-transactions/`. If `proc_open` is unavailable, the shell engine requires `flock`. Read metadata before recovery; do not blindly overwrite a concurrently edited config.
 
+Shell configuration and salt transactions refuse linked or unsafe recovery-state directories before creating backups. See [PHP policy and transaction safety](docs/PHP-POLICY-SAFETY.md) for failure interpretation and safe recovery.
+
 Automatic-update policy manages preferences rather than immediately updating WordPress. Core values are `minor|major|disabled`; plugin/theme values are `enable|disable`. Global blockers such as `DISALLOW_FILE_MODS` are reported separately. Plugin/theme preference backups are in `state/backups/auto-updates/`.
 
 `salts rotate auth` refreshes the complete eight-key authentication group in a staged config and invalidates current login cookies/nonces. `salts rotate cache` operates only when a regular object-cache drop-in references `WP_CACHE_KEY_SALT`. Every generated key is checked for sufficient length, uniqueness and change; only digests are used in verification output. Original secret-bearing config backups remain private.
 
 ## PHP configuration: configured is not effective
+
+The local PHP status and `.user.ini` writer do not bootstrap WordPress or require WP-CLI. Changes preview current/proposed literals before per-site approval, preserve verified private recovery copies, and refuse stale or complex configuration. See [PHP policy semantics and recovery](docs/PHP-POLICY-SAFETY.md).
 
 `php status` distinguishes CLI values, root `.user.ini` values, contextual recommendations, and **UNKNOWN web-effective values**. `php inspect` preserves the existing detailed PHP/optional hosting-provider comparison. Neither automatically applies recommendations.
 
