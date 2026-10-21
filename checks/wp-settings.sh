@@ -8,18 +8,8 @@ ACTION="${1:-status}"
 SETTING="${2:-}"
 VALUE="${3:-}"
 
-_policy_snapshot() {
-  local site="$1" label="$2" out err
-  out=$(tmpf); err=$(tmpf); : > "$out"; : > "$err"
-  if ! wp eval-file "$PRESSHARDEN_DIR/lib/wp-policy-runtime.php" "$label" --path="$site" "${WPQ[@]}" > "$out" 2> "$err"; then
-    rm -f "$out" "$err"; return 2
-  fi
-  if [ "$(grep -c . "$out" 2>/dev/null || true)" -ne 1 ]; then
-    rm -f "$out" "$err"; return 2
-  fi
-  cat "$out"
-  rm -f "$out" "$err"
-}
+. "$PRESSHARDEN_DIR/lib/wp-policy-collect.sh"
+_policy_snapshot() { ph_policy_collect "$@"; }
 
 _policy_status() {
   local rows summary site label failed=0 mode kind a b diffshown=0 diffcount=0 done=0 total=0 percent=0
@@ -51,7 +41,7 @@ _policy_status() {
   fi
   [ -z "${DETAIL_LOG:-}" ] || { printf '\n[WP-SETTINGS] normalized per-site policy snapshots\n'; cat "$rows"; } >> "$DETAIL_LOG" || { rm -f "$rows" "$summary"; printf '    INCOMPLETE: policy detail report could not be written.\n' >&2; return 2; }
   if [ "${#WP_SITES[@]}" -eq 1 ]; then mode=single; else mode=fleet; fi
-  if ! php "$PRESSHARDEN_DIR/lib/wp-policy-summary.php" "$rows" "$mode" > "$summary"; then
+  if ! php -d memory_limit=96M "$PRESSHARDEN_DIR/lib/wp-policy-summary.php" "$rows" "$mode" > "$summary"; then
     rm -f "$rows" "$summary"; printf '    INCOMPLETE: policy baseline could not be summarized.\n' >&2; return 2
   fi
   if [ "$mode" = single ]; then
@@ -83,7 +73,7 @@ _policy_status() {
       note "$diffcount site(s) differ from the baseline. Differences are informational, not proof of insecure configuration."
     fi
   fi
-  note "Only allowlisted non-secret policy values are collected. Status does not change settings; configured values can be overridden at runtime."
+  note "Only validated, allowlisted policy fields are shown. Keep reports private; status does not change settings and runtime overrides may apply."
   rm -f "$rows" "$summary"
   finish
 }

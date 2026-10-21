@@ -34,6 +34,29 @@ case "$program" in
   run lock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = true ]
   [ "$otherhash" = "$(sha256sum "$other/wp-config.php" | awk '{print $1}')" ]
   run unlock a.example;[ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = false ]
+  # Exercise the actual shared-host shell transaction path, not only the PHP
+  # engine normally selected on this runner. Only this disposable config changes.
+  bash "$REPO/lib/config-transaction-shell.sh" set "$T/state" "$site" a.example DISALLOW_FILE_MODS bool true "$(command -v wp)" > "$T/shell-lock"
+  grep -q $'OK\tCHANGED' "$T/shell-lock"
+  [ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = true ]
+  bash "$REPO/lib/config-transaction-shell.sh" set "$T/state" "$site" a.example DISALLOW_FILE_MODS bool false "$(command -v wp)" > "$T/shell-unlock"
+  [ "$(wp config get DISALLOW_FILE_MODS --format=json --path="$site")" = false ]
+  mkdir -m 700 "$T/linked-state"
+  mkdir -m 755 "$site/unrelated-recovery"
+  ln -s "$site/unrelated-recovery" "$T/linked-state/config-transactions"
+  current_hash=$(sha256sum "$site/wp-config.php" | awk '{print $1}')
+  rc=0
+  bash "$REPO/lib/config-transaction-shell.sh" set "$T/linked-state" "$site" a.example DISALLOW_FILE_MODS bool true "$(command -v wp)" > "$T/refused-shell" 2>&1 || rc=$?
+  [ "$rc" -eq 2 ];grep -q 'unsafe transaction state directory' "$T/refused-shell"
+  rc=0
+  bash "$REPO/lib/salt-transaction.sh" rotate "$T/linked-state" "$site" a.example auth "$(command -v wp)" > "$T/refused-salts" 2>&1 || rc=$?
+  [ "$rc" -eq 2 ];grep -q 'unsafe transaction state directory' "$T/refused-salts"
+  [ "$current_hash" = "$(sha256sum "$site/wp-config.php" | awk '{print $1}')" ]
+  [ "$(stat -c %a "$site/unrelated-recovery")" = 755 ]
+  [ -z "$(find "$site/unrelated-recovery" -mindepth 1 -print -quit)" ]
+  rm -- "$T/linked-state/config-transactions"
+  rmdir -- "$T/linked-state" "$site/unrelated-recovery"
+  printf 'Real shell config/salt engines refuse linked state before creating recovery files.\n'
   run wp-settings set editor disabled a.example;[ "$(wp config get DISALLOW_FILE_EDIT --format=json --path="$site")" = true ]
   run wp-settings set debug-display disabled a.example;[ "$(wp config get WP_DEBUG_DISPLAY --format=json --path="$site")" = false ]
   run auto-updates core disabled a.example
@@ -44,6 +67,41 @@ case "$program" in
   before=$(wp config get AUTH_KEY --path="$site");run salts rotate auth a.example;after=$(wp config get AUTH_KEY --path="$site");[ "$before" != "$after" ];unset before after
   run salts rotate cache a.example > "$T/cache-skip"
   grep -q SKIPPED "$T/cache-skip"
+  # Status reads the real runtime policy but must leave both configs untouched.
+  # Core updates were explicitly disabled above: a complete combined view must
+  # return REVIEW (1), while an INCOMPLETE result (2) always fails this fixture.
+  sha256sum "$site/wp-config.php" "$other/wp-config.php" > "$T/status-configs.sha256"
+  check_status_view(){
+   local output=$1 expected=$2 status_rc;shift 2
+   if run "$@" > "$output";then status_rc=0;else status_rc=$?;fi
+   cat "$output"
+   [ "$status_rc" -eq "$expected" ]
+   grep -Fq 'a.example' "$output"
+   if grep -Fq 'b.example' "$output";then
+    echo 'Selected status included the unrelated fixture.' >&2;return 1
+   fi
+   grep -Fq 'Sites: 1 |' "$output"
+   grep -Fq 'Incomplete: 0' "$output"
+   sha256sum --check --status "$T/status-configs.sha256"
+  }
+  check_status_view "$T/status-combined" 1 status --target a.example
+  grep -Fq 'WordPress:' "$T/status-combined"
+  grep -Fq 'PHP:' "$T/status-combined"
+  grep -Fq 'Need review: 1' "$T/status-combined"
+  check_status_view "$T/status-php" 0 status -php a.example
+  grep -Fq 'web effective UNKNOWN' "$T/status-php"
+  if grep -Fq 'WordPress:' "$T/status-php";then exit 1;fi
+  check_status_view "$T/status-locks" 0 check -locks --target a.example
+  grep -Fq 'File changes: UNLOCKED' "$T/status-locks"
+  if grep -Fq 'PHP:' "$T/status-locks";then exit 1;fi
+  check_status_view "$T/status-verbose" 1 status --verbose --target a.example
+  grep -Fq 'Dashboard editor' "$T/status-verbose"
+  grep -Fq 'Local .user.ini' "$T/status-verbose"
+  check_status_view "$T/status-selected-verbose" 0 check -php -locks --verbose --target a.example
+  grep -Fq 'sections: php,locks' "$T/status-selected-verbose"
+  grep -Fq 'File changes: UNLOCKED' "$T/status-selected-verbose"
+  grep -Fq 'Local .user.ini' "$T/status-selected-verbose"
+  printf 'Combined and filtered status views are scoped, complete, and read-only.\n'
   find "$T/state" -name '*.bak' -o -name '*.json' | grep -q .
   ;;
  pressgarden)
@@ -75,7 +133,8 @@ case "$program" in
 esac
 [ "$otherhash" = "$(sha256sum "$other/wp-config.php" | awk '{print $1}')" ]
 # Invalid names never fall back to the unrelated fixture.
-set +e;run doctor nonexistent.example >/dev/null 2>&1;rc=$?;set -e;[ "$rc" -eq 2 ]
+if run doctor nonexistent.example >/dev/null 2>&1;then rc=0;else rc=$?;fi
+[ "$rc" -eq 2 ]
 printf '\n%s live WordPress / MySQL fixture integration PASS\n' "$product"
 wp core version --path="$site"
 wp --info

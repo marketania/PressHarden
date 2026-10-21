@@ -39,7 +39,43 @@ Remote installer example above replaces only your downloaded installer file; do 
 
 For a user-wide symlink, set `PRESSHARDEN_INSTALL_MODE=user` instead of a portable prefix. Existing installation destinations are refused; use their `update` command. The independent installer validates archive paths, identity and syntax; it never downloads the sibling tools.
 
-## Commands
+## Everyday commands
+
+Start with one read-only overview. With no area filter, status includes both
+WordPress policy and local PHP configuration. Filters can be combined; they
+select only the requested areas. Full values are available when needed.
+
+```bash
+./pressharden status
+./pressharden status -php --target example.com
+./pressharden status -wp -updates example.com
+./pressharden status --verbose example.com
+./pressharden check -locks example.com
+./pressharden help configure
+./pressharden help all
+```
+
+The concise overview labels each site **OBSERVED**, **REVIEW**, **UNVERIFIED**, or
+**INCOMPLETE**, then totals review items and collection failures. OBSERVED means
+that the selected policy data was collected; it is not a security certification.
+PHP web effectiveness remains **UNKNOWN**. PHP-only status does not use WP-CLI.
+Production debug/query logging, enabled repair or unfiltered-upload settings,
+and automatic-update blockers receive explicit review messages; a blocker can
+be intentional. `wp-settings` still provides the detailed fleet baseline.
+
+Color is automatic on a terminal. Use `--color=always`, `--color=never`, or
+`--no-color`; `NO_COLOR` retains plain output. Automatic color respects
+`TERM=dumb`, while explicit `--color=always` overrides that terminal hint. Redirected output
+stays plain in automatic mode even when standard error is attached to a terminal.
+`--target SITE` works wherever a positional site is accepted; duplicate or empty
+targets are errors. `--help` on an operation displays help without invoking it.
+
+![PressHarden status preview using reserved test sites](docs/assets/cli-status-preview.png)
+
+*Captured from actual `pressharden status --color=always` output using the
+repository's inert `.test` fixtures.*
+
+## Advanced commands
 
 ```bash
 ./pressharden status example.com
@@ -71,17 +107,21 @@ Configuration is trusted shell input. Keep it administrator-owned and mode 600. 
 
 ## Configuration policies
 
-`status` and `wp-settings` collect the existing allowlisted effective WordPress policy dashboard; the fleet baseline is descriptive, not a universal secure recommendation. `lock`/`unlock` set `DISALLOW_FILE_MODS`; they do not change the separately configured dashboard editor policy. `file-mods status|on|off` is the explicit advanced equivalent.
+`status` and its `check` alias show a concise selected-area overview. `wp-settings` retains the full allowlisted WordPress policy dashboard and descriptive fleet baseline; neither is a universal secure recommendation. `lock`/`unlock` set `DISALLOW_FILE_MODS`; they do not change the separately configured dashboard editor policy. `file-mods status|on|off` is the explicit advanced equivalent.
 
 `wp-settings set` accepts `editor`, `cron`, `recovery`, `debug`, `debug-display`, `debug-log`, `script-debug`, `savequeries`, `force-ssl-admin`, and `alternate-cron` with `enabled|disabled`; `environment` with `production|staging|development|local`; `development` with `disabled|core|plugin|theme|all`.
 
 Both the original PHP configuration transaction engine and the shell fallback are retained. Private staging, value and PHP syntax validation, source identity checks, conditional atomic publication, readback and safe rollback protect `wp-config.php`. No live `sed` editing is used. Backups/metadata are in `state/config-transactions/`. If `proc_open` is unavailable, the shell engine requires `flock`. Read metadata before recovery; do not blindly overwrite a concurrently edited config.
+
+Shell configuration and salt transactions refuse linked or unsafe recovery-state directories before creating backups. See [PHP policy and transaction safety](docs/PHP-POLICY-SAFETY.md) for failure interpretation and safe recovery.
 
 Automatic-update policy manages preferences rather than immediately updating WordPress. Core values are `minor|major|disabled`; plugin/theme values are `enable|disable`. Global blockers such as `DISALLOW_FILE_MODS` are reported separately. Plugin/theme preference backups are in `state/backups/auto-updates/`.
 
 `salts rotate auth` refreshes the complete eight-key authentication group in a staged config and invalidates current login cookies/nonces. `salts rotate cache` operates only when a regular object-cache drop-in references `WP_CACHE_KEY_SALT`. Every generated key is checked for sufficient length, uniqueness and change; only digests are used in verification output. Original secret-bearing config backups remain private.
 
 ## PHP configuration: configured is not effective
+
+The local PHP status and `.user.ini` writer do not bootstrap WordPress or require WP-CLI. Read-only status can inspect WAF/autoload directives as inert text, labels their presence for review, and never executes or displays their configured path. The writer continues to refuse these files pending manual review. Changes preview current/proposed literals before per-site approval, preserve verified private recovery copies, and refuse stale or complex configuration. See [PHP policy semantics and recovery](docs/PHP-POLICY-SAFETY.md).
 
 `php status` distinguishes CLI values, root `.user.ini` values, contextual recommendations, and **UNKNOWN web-effective values**. `php inspect` preserves the existing detailed PHP/optional hosting-provider comparison. Neither automatically applies recommendations.
 
@@ -104,6 +144,8 @@ Mutations confirm on a terminal by default. `PRESSHARDEN_INTERACTIVE=0` is an ex
 WP-CLI operations run as the current account. Plugin skip flags do not suppress MU-plugins; loading WordPress is not a sandbox. Do not run maintenance/policy changes as incident remediation. Preserve evidence and investigate a suspected compromise first. Stop other administrative processes before updates or mutations; private state/operation locks are product-specific, not a cross-product distributed lock.
 
 ## Exit codes
+
+For `status`/`check`, exit **0** means the selected inspections completed with no flagged review items; **1** means review items; **2** means incomplete/error. Unknown web PHP alone does not fail a completed static inspection. `lock-status` returns 2 when a restriction is absent or unreadable, because its configured state cannot be confirmed.
 
 `0`: requested operation completed under its documented semantics (or no eligible change). `1`: declined operation, review/partial work, or PHP configuration awaiting web verification as applicable. `2+`: invalid request, incomplete discovery/verification, dependency or execution failure. Provider COMMAND COMPLETED means command success, not independently measured service effectiveness. Status findings and unsupported capabilities are labeled explicitly.
 

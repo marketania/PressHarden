@@ -6,6 +6,7 @@ never push that agent's branch. Remove the entry when the PR is merged.
 
 | Agent | Branch | Owned area | Status |
 |---|---|---|---|
+| Codex | `codex/cli-usability-audit-2026-10-21` | Consolidated read-only status, terminal/help usability, safety fixes from PR #7 | Review candidate; unmerged and unreleased |
 
 This is PressHarden, an independent Bash/PHP application. Runtime changes, client sites,
 production credentials and deployment infrastructure are outside this setup.

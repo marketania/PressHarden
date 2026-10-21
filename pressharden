@@ -14,6 +14,48 @@ done
 PRESSHARDEN_DIR="$(cd -P "$(dirname "$_ph_self")" 2>/dev/null && pwd -P)"
 unset _ph_self _ph_self_dir _ph_link 2>/dev/null || true
 VERSION="$(cat "$PRESSHARDEN_DIR/VERSION" 2>/dev/null || printf 'unknown')"
+# Presentation and target flags work before or after the command. Normalize
+# named targets separately so they can never become an action or subcommand.
+_ph_args=(); _ph_target=(); _ph_named_target=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --color=*) PRESSHARDEN_COLOR="${1#--color=}"; export PRESSHARDEN_COLOR ;;
+    --color)
+      [ "$#" -ge 2 ] || { printf 'Missing color mode.\n' >&2; exit 2; }
+      shift; PRESSHARDEN_COLOR="$1"; export PRESSHARDEN_COLOR ;;
+    --no-color) PRESSHARDEN_COLOR=never; export PRESSHARDEN_COLOR ;;
+    --target|--target=*)
+      [ "$_ph_named_target" -eq 0 ] || { printf 'Use one target only.\n' >&2; exit 2; }
+      _ph_named_target=1
+      if [ "$1" = --target ]; then
+        [ "$#" -ge 2 ] || { printf 'Missing target.\n' >&2; exit 2; }; shift; _ph_value="$1"
+      else _ph_value="${1#--target=}"; fi
+      case "$_ph_value" in ''|-*) printf 'Empty or invalid target.\n' >&2; exit 2 ;; esac
+      _ph_target=("$_ph_value") ;;
+    *) _ph_args+=("$1") ;;
+  esac
+  shift
+done
+set -- "${_ph_args[@]}"
+unset _ph_args _ph_value
+# Help must never fall through into an updater or mutation handler.
+if [ "$#" -gt 1 ] && [ "${1:-}" != help ]; then
+  for _ph_arg in "${@:2}"; do
+    case "$_ph_arg" in
+      -h|--help)
+        case "$1" in
+          status|check) set -- help status ;;
+          php) set -- help php ;;
+          auto-update|auto-updates) set -- help updates ;;
+          wp-settings|lock|unlock|lock-status|file-mods|salts) set -- help configure ;;
+          update|config|config-new|sites|doctor|version|-V|--version) set -- help all ;;
+        esac
+        if [ "${1:-}" = help ]; then _ph_target=(); _ph_named_target=0; fi
+        break ;;
+    esac
+  done
+fi
+unset _ph_arg
 PRESSHARDEN_PORTABLE=0
 [ -f "$PRESSHARDEN_DIR/.pressharden-portable" ] && PRESSHARDEN_PORTABLE=1
 
@@ -34,6 +76,7 @@ fi
 
 # Config advice must work even with a broken config, without executing it.
 if [ "${1:-}" = config-new ]; then
+  [ "$#" -eq 1 ] && [ "$_ph_named_target" -eq 0 ] || { printf 'Usage: pressharden config-new\n' >&2; exit 2; }
   command -v php >/dev/null 2>&1 || { printf 'config-new requires PHP CLI.\n' >&2; exit 2; }
   exec php "$PRESSHARDEN_DIR/lib/config-options.php" "$PRESSHARDEN_DIR/config/config.example" "$CONFIG_FILE"
 fi
@@ -50,33 +93,98 @@ fi
 unset _ph_env_overrides _ph_k _ph_v 2>/dev/null || true
 export PRESSHARDEN_PORTABLE
 
-usage() {
-  cat <<EOF
-PressHarden v$VERSION — WordPress hardening and security policy
+# shellcheck source=lib/cli-ui.sh
+. "$PRESSHARDEN_DIR/lib/cli-ui.sh"
+ph_ui_init || exit 2
 
-Usage: pressharden COMMAND [arguments] [website|directory|all]
-  status / wp-settings             Read-only normalized WordPress policy
-  wp-settings set SETTING VALUE    Transactional wp-config change
-  lock / unlock / lock-status      WordPress file-modification restrictions
-  file-mods status|on|off           Advanced equivalent locking interface
-  auto-updates status              Core/plugin/theme preferences and blockers
-  auto-updates core minor|major|disabled
-  auto-updates plugins enable|disable
-  auto-updates themes enable|disable
-  php status                       CLI vs declared local/web PHP configuration
-  php inspect                      Detailed PHP posture and optional provider view
-  php set SETTING VALUE            Guarded .user.ini change; web effect is not assumed
-  salts rotate auth|cache          Atomic authentication/cache namespace rotation
-  sites [directory] / doctor [target]
-  config / config-new / update / version / help
+usage() {
+  local topic="${1:-quick}"
+  [ "$#" -le 1 ] || { printf 'Usage: pressharden help [all|status|configure|php|updates]\n' >&2; return 2; }
+  ph_ui_heading "PressHarden v$VERSION — WordPress hardening and security policy"
+  case "$topic" in
+    quick)
+      cat <<'EOF'
+
+Everyday commands
+  status [target]               WordPress + PHP overview; read-only
+  status -wp | -php | -updates | -locks [target]
+                                Select one or more areas
+  status --verbose [target]     Full policy values and PHP details
+  lock | unlock [target]       Guarded file-modification policy changes
+  sites / doctor [target]      Find sites / diagnose local requirements
+
+Manage
+  config / config-new / update / version
+  help configure              Explicit policy changes and recovery
+  help all                    Complete command reference
+
+Examples
+  pressharden status
+  pressharden status -php --target example.com
+  pressharden status -wp -updates example.com
+
+Targets: one website, nested site, directory, or all. An omitted target selects
+only the configured fleet; an invalid or empty target never expands the scope.
+Color: --color=auto|always|never; NO_COLOR wins; auto respects TERM=dumb.
+EOF
+      ;;
+    status)
+      cat <<'EOF'
+
+  status [target]               All supported overview areas (WordPress + PHP)
+  check [target]                Alias for status
+  status -wp/--wp              WordPress policy, file controls and update summary
+  status -php/--php            Static local PHP policy only; no WP-CLI needed
+  status -updates/--updates    Core/plugin/theme preferences and blockers
+  status -locks/--locks        File-modification restriction
+  status --verbose            Include detailed values
+
+Filters can be combined. Use one positional target or --target SITE.
+OBSERVED = collected, REVIEW = items worth checking, INCOMPLETE = unreadable
+or unsafe data, UNVERIFIED = effective web PHP is unknown. These are observations,
+not security certification. Exit 0 = collected with no flagged review items,
+1 = review items, 2 = incomplete/error. PHP web uncertainty alone does not fail
+an otherwise complete inspection. No settings are changed by status or check.
+EOF
+      ;;
+    configure|php|updates|all)
+      cat <<'EOF'
+
+Read and compare
+  status / check [target]             Combined concise overview
+  status [-wp] [-php] [-updates] [-locks] [--verbose] [target]
+  wp-settings [status] [target]       Full WordPress baseline and differences
+  php status [target]                 Local/CLI PHP values; web effect unknown
+  php inspect [target] [--details]    Advanced runtime/provider inspection
+  auto-updates status [target]        Detailed preferences and blockers
+  lock-status [target]                Configured file-modification restriction
+
+Explicit policy changes (preflight, backup, confirmation and verification)
+  wp-settings set SETTING VALUE [target]
+  lock / unlock [target]
+  file-mods status|on|off [target]     Equivalent advanced locking interface
+  auto-updates core minor|major|disabled [target]
+  auto-updates plugins enable|disable [target]
+  auto-updates themes enable|disable [target]
+  php set SETTING VALUE [target]      Guarded .user.ini change
+  salts rotate auth|cache [target]    Atomic authentication/cache rotation
 
 Settings: editor, cron, recovery, environment, development, debug, debug-display,
           debug-log, script-debug, savequeries, force-ssl-admin, alternate-cron.
-Boolean policy values: enabled|disabled. See docs/WP-SETTINGS.md for other values.
-Omitted target selects the configured fleet; explicit all does the same.
-An unresolved, excluded, duplicate or explicitly empty target is always an error.
-No malware scan, cache purge, DB cleanup or sibling installation is required.
+Boolean values: enabled|disabled. See docs/WP-SETTINGS.md for other values.
+PHP writes require verified web-SAPI context; on-disk changes are not web proof.
+Backup/recovery paths are reported by each operation. Never blanket-change every
+policy: hosting requirements and application behavior differ.
+
+Utility: sites [directory] / doctor [target] / config / config-new / update /
+         version / help [all|status|configure|php|updates]
+Use one positional target or --target SITE. Existing command aliases still work.
+Color: --color=auto|always|never; NO_COLOR wins; auto respects TERM=dumb.
+Omitted target selects the configured fleet. Unknown/empty targets fail closed.
 EOF
+      ;;
+    *) printf 'Unknown help topic. Use help all, status, configure, php, or updates.\n' >&2; return 2 ;;
+  esac
 }
 show_config() {
   local state cache
@@ -113,6 +221,8 @@ resolve_root() {
 # One resolver for every command accepting a site/directory. A failed name must
 # never become an empty ROOT (which would silently broaden the operation).
 select_target() {
+  # Named targets are operands only; e.g. --target on cannot become file-mods on.
+  [ "${_ph_named_target:-0}" -eq 0 ] || set -- "$@" "${_ph_target[@]}"
   local target="${1:-}" result scope line kind value first
   [ "$#" -le 1 ] || { printf 'Use one website name, directory, or all.\n' >&2; return 2; }
   [ "$#" -eq 0 ] || [ -n "$target" ] || { printf "Explicit target cannot be empty.\n" >&2; return 2; }
@@ -197,10 +307,11 @@ confirm_wp_setting_change() {
 
 cmd="${1:-help}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
-  -V|--version|version) printf 'PressHarden %s\n' "$VERSION" ;;
-  help|-h|--help) usage ;;
-  config) show_config ;;
+  -V|--version|version) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || exit 2; printf 'PressHarden %s\n' "$VERSION" ;;
+  help|-h|--help) [ "$_ph_named_target" -eq 0 ] || exit 2; usage "$@" ;;
+  config) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || exit 2; show_config ;;
   sites)
+    [ "$_ph_named_target" -eq 0 ] || set -- "$@" "${_ph_target[@]}"
     [ "$#" -le 1 ] || { printf 'Usage: ./pressharden sites [directory]\n' >&2; exit 2; }
     [ "$#" -eq 0 ] || [ -n "$1" ] || { printf 'Explicit target cannot be empty.\n' >&2; exit 2; }
     _PH_FLEET_ROOT=$(resolve_root '') || exit 2
@@ -209,6 +320,7 @@ case "$cmd" in
     exec bash "$PRESSHARDEN_DIR/lib/site-target.sh" "$ROOT" --list
     ;;
   update)
+    [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || { printf 'Usage: pressharden update\n' >&2; exit 2; }
     # shellcheck disable=SC1090
     . "$PRESSHARDEN_DIR/lib/update.sh"
     ph_update
@@ -289,9 +401,25 @@ case "$cmd" in
     select_target "$@" || exit 2
     exec bash "$PRESSHARDEN_DIR/checks/file-mods.sh" "$action"
     ;;
-  status)
-    select_target "$@" || exit 2
-    exec bash "$PRESSHARDEN_DIR/checks/wp-settings.sh" status ;;
+  status|check)
+    status_areas=(); status_target=(); status_verbose=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -wp|--wp) status_areas+=(wp) ;;
+        -php|--php) status_areas+=(php) ;;
+        -updates|--updates) status_areas+=(updates) ;;
+        -locks|--locks) status_areas+=(locks) ;;
+        --verbose|-v) status_verbose=1 ;;
+        --help|-h) usage status; exit $? ;;
+        -*) printf 'Unknown status option: %s. See pressharden help status.\n' "$1" >&2; exit 2 ;;
+        *) status_target+=("$1") ;;
+      esac
+      shift
+    done
+    [ "${#status_areas[@]}" -ne 0 ] || status_areas=(wp php)
+    select_target "${status_target[@]}" || exit 2
+    status_area_list=$(IFS=,; printf '%s' "${status_areas[*]}")
+    exec bash "$PRESSHARDEN_DIR/checks/status.sh" "$status_area_list" "$status_verbose" ;;
   doctor)
     select_target "$@" || exit 2
     exec bash "$PRESSHARDEN_DIR/checks/doctor.sh" ;;

@@ -163,6 +163,13 @@ fi
 for item in "$PROGRAM" install.sh uninstall.sh lib/_lib.sh config/config.example VERSION; do
   [ -s "$SRC/$item" ] && [ ! -L "$SRC/$item" ] || { printf 'Missing/unsafe source file: %s\n' "$item" >&2; exit 2; }
 done
+# Older standalone source trees do not reference the new CLI; preserve their
+# install path while rejecting incomplete distributions that do depend on it.
+if grep -Fq 'lib/cli-ui.sh' "$SRC/$PROGRAM"; then
+  for item in lib/cli-ui.sh checks/status.sh lib/status-summary.php lib/wp-policy-collect.sh lib/wp-policy-input.php; do
+    [ -s "$SRC/$item" ] && [ ! -L "$SRC/$item" ] || { printf 'Missing/unsafe source file: %s\n' "$item" >&2; exit 2; }
+  done
+fi
 php -r 'require $argv[1];ph_ops_path($argv[2]);' "$SRC/lib/ops-safety.php" "$DEST"
 [ ! -e "$DEST" ] && [ ! -L "$DEST" ] || { echo 'Destination exists. Use its update command; installation will not overwrite it.' >&2; exit 2; }
 PARENT=$(dirname "$DEST")

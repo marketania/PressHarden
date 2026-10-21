@@ -35,7 +35,10 @@ _item_counts() {
   local site="$1" type="$2" total enabled
   total=$(_wpcmd "$site" "$type" auto-updates status --all --format=count 2>/dev/null) || return 2
   enabled=$(_wpcmd "$site" "$type" auto-updates status --all --enabled-only --format=count 2>/dev/null) || return 2
-  case "$total:$enabled" in *[!0-9:]*|:*|*:) return 2 ;; esac
+  # Malformed or impossible counts cannot be treated as a complete policy or
+  # used to authorize a no-op/change. Bound arithmetic before comparing it.
+  [[ "$total" =~ ^(0|[1-9][0-9]{0,6})$ && "$enabled" =~ ^(0|[1-9][0-9]{0,6})$ ]] || return 2
+  [ "$total" -le 1000000 ] && [ "$enabled" -le "$total" ] || return 2
   printf '%s\t%s\n' "$total" "$enabled"
 }
 

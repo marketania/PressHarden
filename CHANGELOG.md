@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — clearer CLI and policy recovery
+
+- Consolidate read-only status/check into one concise WordPress/PHP overview, with additive `-wp`, `-php`, `-updates`, and `-locks` selectors and optional `--verbose` details.
+- Add grouped quick help, full/topic help, named `--target` support, and explicit terminal color controls. Respect `NO_COLOR`, plain redirected output, and `TERM=dumb`.
+- Inspect WAF/autoload INI entries as inert text for status without disclosing their paths; keep strict write refusal.
+- Prevent operation `--help` and stray updater arguments from reaching mutation/update handlers.
+- Return incomplete when lock state cannot be read; reject impossible or oversized automatic-update inventory counts before status or mutation decisions.
+- Retain the previously reviewed PHP, transaction and dashboard safety fixes below without changing release versions or independent-tool boundaries.
+
+- Validate complete, site-bound policy records before normalized logs; refuse missing/extra fields, warnings and duplicate fleet rows. Escape terminal/bidi controls in dashboards and bound snapshot reads. Add 15 inert output/schema methods.
+
+- Refuse linked or unsafe shell transaction/lock state directories before recovery writes or permission changes, and revalidate parents under the writer lock. Add real-filesystem regressions and isolated WP-CLI shell-engine integration. Use noclobber for shell config publication so a link inserted after the existence check cannot redirect the write.
+
+- Quote SameSite string values so INI `None` is not interpreted as empty; fix the corresponding incorrect no-op.
+- Respect explicitly disabled/nondefault user-INI filenames and refuse array, duplicate or environment-driven target directives.
+- Remove WP-CLI dependency from the inert local PHP workflow; preview validated current/proposed values before per-site approval.
+- Bound reads, strengthen file/lock identity checks and verify private recovery metadata before publication. Preserve web-effect uncertainty.
+- Add real INI, filesystem, PTY, lock and attribution regressions without changing update policies or publishing a release.
+
 ## 0.1.1 — 2026-09-24
 
 - Explicitly empty or invalid `sites` directory arguments now stop with exit 2 instead of falling back to fleet inventory.
