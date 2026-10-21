@@ -48,7 +48,8 @@ if [ "$#" -gt 1 ] && [ "${1:-}" != help ]; then
           php) set -- help php ;;
           auto-update|auto-updates) set -- help updates ;;
           wp-settings|lock|unlock|lock-status|file-mods|salts) set -- help configure ;;
-          update|config|config-new|sites|doctor|version|-V|--version) set -- help all ;;
+          update) set -- help update ;;
+          config|config-new|sites|doctor|version|-V|--version) set -- help setup ;;
         esac
         if [ "${1:-}" = help ]; then _ph_target=(); _ph_named_target=0; fi
         break ;;
@@ -81,25 +82,33 @@ if [ "${1:-}" = config-new ]; then
   exec php "$PRESSHARDEN_DIR/lib/config-options.php" "$PRESSHARDEN_DIR/config/config.example" "$CONFIG_FILE"
 fi
 
-# Preserve explicitly exported PressHarden/API values so one-shot environment
-# overrides win over persistent config values.
-_ph_env_overrides=$(env | grep -E '^(PRESSHARDEN_[A-Za-z0-9_]*)=' || true)
-[ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
-if [ -n "$_ph_env_overrides" ]; then
-  while IFS='=' read -r _ph_k _ph_v; do
-    case "$_ph_k" in PRESSHARDEN_*) printf -v "$_ph_k" '%s' "$_ph_v"; export "$_ph_k" ;; esac
-  done <<< "$_ph_env_overrides"
-fi
-unset _ph_env_overrides _ph_k _ph_v 2>/dev/null || true
-export PRESSHARDEN_PORTABLE
-
+# Preserve exact exported values so one-shot environment overrides win over
+# persistent config without truncating roots or multiline exclusion lists.
 # shellcheck source=lib/cli-ui.sh
 . "$PRESSHARDEN_DIR/lib/cli-ui.sh"
+ph_cli_save_environment || exit 2
+if [ -e "$CONFIG_FILE" ] || [ -L "$CONFIG_FILE" ]; then
+  [ -f "$CONFIG_FILE" ] && [ -r "$CONFIG_FILE" ] || { printf 'Cannot read PressHarden configuration: %q. No operation started.\n' "$CONFIG_FILE" >&2; exit 2; }
+  if ! bash -n "$CONFIG_FILE" 2>/dev/null; then
+    printf 'Invalid Bash syntax in PressHarden configuration: %q. No operation started.\n' "$CONFIG_FILE" >&2
+    printf 'Correct the configuration first; config-new previews template additions without loading it.\n' >&2
+    exit 2
+  fi
+  # The file remains trusted shell code. Reject loading errors before resolving
+  # any target; a partially loaded configuration must never choose the fleet.
+  if ! . "$CONFIG_FILE"; then
+    printf 'PressHarden configuration returned an error: %q. No operation started.\n' "$CONFIG_FILE" >&2
+    exit 2
+  fi
+fi
+ph_cli_restore_environment || exit 2
+export PRESSHARDEN_PORTABLE
+
 ph_ui_init || exit 2
 
 usage() {
   local topic="${1:-quick}"
-  [ "$#" -le 1 ] || { printf 'Usage: pressharden help [all|status|configure|php|updates]\n' >&2; return 2; }
+  [ "$#" -le 1 ] || { printf 'Usage: pressharden help [all|status|configure|php|updates|setup|update]\n' >&2; return 2; }
   ph_ui_heading "PressHarden v$VERSION — WordPress hardening and security policy"
   case "$topic" in
     quick)
@@ -109,12 +118,13 @@ Everyday commands
   status [target]               WordPress + PHP overview; read-only
   status -wp | -php | -updates | -locks [target]
                                 Select one or more areas
-  status --verbose [target]     Full policy values and PHP details
+  status --verbose [target]     Detailed values for the selected areas
   lock | unlock [target]       Guarded file-modification policy changes
   sites / doctor [target]      Find sites / diagnose local requirements
 
 Manage
   config / config-new / update / version
+  help setup / help update    First-site setup and program update guidance
   help configure              Explicit policy changes and recovery
   help all                    Complete command reference
 
@@ -137,7 +147,7 @@ EOF
   status -php/--php            Static local PHP policy only; no WP-CLI needed
   status -updates/--updates    Core/plugin/theme preferences and blockers
   status -locks/--locks        File-modification restriction
-  status --verbose            Include detailed values
+  status --verbose            Detailed values for the selected areas
 
 Filters can be combined. Use one positional target or --target SITE.
 OBSERVED = collected, REVIEW = items worth checking, INCOMPLETE = unreadable
@@ -145,6 +155,40 @@ or unsafe data, UNVERIFIED = effective web PHP is unknown. These are observation
 not security certification. Exit 0 = collected with no flagged review items,
 1 = review items, 2 = incomplete/error. PHP web uncertainty alone does not fail
 an otherwise complete inspection. No settings are changed by status or check.
+EOF
+      ;;
+    setup|config|config-new|sites|doctor)
+      cat <<'EOF'
+
+Start with one staging installation, running as its owner:
+  export PRESSHARDEN_SCAN_ROOT="/absolute/path/to/your/sites"
+  pressharden config                    Show resolved paths and interaction mode
+  pressharden sites                     List discovered local names/directories
+  pressharden doctor --target SITE      Check dependencies and selected scope
+  pressharden status --target SITE      Read WordPress and local PHP observations
+  pressharden status -php --target SITE Static PHP inspection without WP-CLI
+
+Use a name from sites, a nested site, or an absolute local directory. Omission
+selects the configured fleet; a parent can include discovered nested installs.
+config shows the private config path. config-new previews missing template
+options without editing or executing that file. Configuration is trusted shell
+code; keep it owner-controlled, mode 600, and outside website roots.
+Read README.md for installation choices; help update explains program updates.
+EOF
+      ;;
+    update)
+      cat <<'EOF'
+
+  pressharden update                   Replace this tool's managed program files
+  pressharden config-new               Preview new private configuration options
+
+Default source: marketania/PressHarden, branch main. This is moving source,
+not automatic selection of a stable release. An explicit PRESSHARDEN_REF chooses
+a branch or tag; PRESSHARDEN_UPDATE_ARCHIVE selects a local distribution archive.
+Updates validate product identity and syntax, preserve private config/state,
+and retain recovery data on failure. Stop other operations before updating.
+Git working trees refuse self-update; review and update those through Git.
+See docs/UPDATING.md for source selection, locks and recovery.
 EOF
       ;;
     configure|php|updates|all)
@@ -177,23 +221,24 @@ Backup/recovery paths are reported by each operation. Never blanket-change every
 policy: hosting requirements and application behavior differ.
 
 Utility: sites [directory] / doctor [target] / config / config-new / update /
-         version / help [all|status|configure|php|updates]
+         version / help [all|status|configure|php|updates|setup|update]
 Use one positional target or --target SITE. Existing command aliases still work.
 Color: --color=auto|always|never; NO_COLOR wins; auto respects TERM=dumb.
 Omitted target selects the configured fleet. Unknown/empty targets fail closed.
 EOF
       ;;
-    *) printf 'Unknown help topic. Use help all, status, configure, php, or updates.\n' >&2; return 2 ;;
+    *) printf 'Unknown help topic. Use help all, status, configure, php, updates, setup, or update.\n' >&2; return 2 ;;
   esac
 }
 show_config() {
-  local state cache
+  local state cache root
+  root=$(resolve_root '') || return 2
   if [ "$PRESSHARDEN_PORTABLE" = 1 ]; then
     state="${PRESSHARDEN_STATE_DIR:-$PRESSHARDEN_DIR/var}"; cache="${PRESSHARDEN_CACHE_DIR:-$PRESSHARDEN_DIR/var/cache}"
   else
     state="${PRESSHARDEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/pressharden}"; cache="${PRESSHARDEN_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pressharden}"
   fi
-  printf 'PressHarden v%s\nProgram: %s\nConfig: %s\nRoot: %s\nState: %s\nCache: %s\nInteractive: %s\n' "$VERSION" "$PRESSHARDEN_DIR" "$CONFIG_FILE" "$(resolve_root '')" "$state" "$cache" "${PRESSHARDEN_INTERACTIVE:-1}"
+  printf 'PressHarden v%s\nProgram: %s\nConfig: %s\nRoot: %s\nState: %s\nCache: %s\nInteractive: %s\n' "$VERSION" "$PRESSHARDEN_DIR" "$CONFIG_FILE" "$root" "$state" "$cache" "${PRESSHARDEN_INTERACTIVE:-1}"
   printf 'Optional provider credentials: %s\n' "$([ -n "${PRESSHARDEN_HOSTINGER_API_TOKEN:-}" ] && printf configured || printf 'not configured')"
 }
 
@@ -307,9 +352,9 @@ confirm_wp_setting_change() {
 
 cmd="${1:-help}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
-  -V|--version|version) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || exit 2; printf 'PressHarden %s\n' "$VERSION" ;;
-  help|-h|--help) [ "$_ph_named_target" -eq 0 ] || exit 2; usage "$@" ;;
-  config) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || exit 2; show_config ;;
+  -V|--version|version) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || { printf 'Usage: pressharden version\n' >&2; exit 2; }; printf 'PressHarden %s\n' "$VERSION" ;;
+  help|-h|--help) [ "$_ph_named_target" -eq 0 ] || { printf 'Help does not take a website target. Use pressharden help all.\n' >&2; exit 2; }; usage "$@" ;;
+  config) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || { printf 'Usage: pressharden config\n' >&2; exit 2; }; show_config ;;
   sites)
     [ "$_ph_named_target" -eq 0 ] || set -- "$@" "${_ph_target[@]}"
     [ "$#" -le 1 ] || { printf 'Usage: ./pressharden sites [directory]\n' >&2; exit 2; }

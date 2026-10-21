@@ -2,6 +2,11 @@
 
 ## Unreleased — clearer CLI and policy recovery
 
+- Validate saved shell configuration before loading it and stop on unreadable files or loading errors; malformed configuration can no longer continue into a partially configured fleet operation. Keep `config-new` available without loading the file.
+- Preserve exact exported configuration overrides, including multiline exclusions; reject invalid multiline roots without truncating them into a valid fleet scope. Refuse operations when a saved readonly value prevents restoring an explicit override.
+- Keep `status --verbose` within the selected areas. Mark failed requested detail views incomplete before printing the site badge, and withhold partial detail output.
+- Return incomplete from `doctor` when discovery finds no eligible installations; propagate invalid roots from `config` and add focused setup/update help.
+- Rewrite onboarding around reviewed-source installation, explicit first-site scope, result meanings and recovery. Distinguish the unreleased checkout from published v0.1.1 and moving-main installation/update defaults; retain all credits, artwork and original link destinations.
 - Consolidate read-only status/check into one concise WordPress/PHP overview, with additive `-wp`, `-php`, `-updates`, and `-locks` selectors and optional `--verbose` details.
 - Add grouped quick help, full/topic help, named `--target` support, and explicit terminal color controls. Respect `NO_COLOR`, plain redirected output, and `TERM=dumb`.
 - Inspect WAF/autoload INI entries as inert text for status without disclosing their paths; keep strict write refusal.

@@ -23,7 +23,7 @@ class PolicyOutput(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='ph-policy-output-'); self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
 
-    def summary(self, rows, mode='fleet', kind='file'):
+    def summary(self, rows, mode='fleet', kind='file', areas=None):
         source = self.base / 'rows'
         data = b''.join(json.dumps(row).encode()+b'\n' for row in rows)
         if kind == 'fifo': os.mkfifo(source)
@@ -34,7 +34,9 @@ class PolicyOutput(unittest.TestCase):
         elif kind == 'oversized':
             with source.open('wb') as f: f.truncate(16*1024*1024+1)
         else: source.write_bytes(data)
-        p = subprocess.Popen(['php', str(ROOT/'lib/wp-policy-summary.php'), str(source), mode],
+        args=['php', str(ROOT/'lib/wp-policy-summary.php'), str(source), mode]
+        if areas is not None:args.append(areas)
+        p = subprocess.Popen(args,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         try: out, err = p.communicate(timeout=3)
         except subprocess.TimeoutExpired:
@@ -46,6 +48,20 @@ class PolicyOutput(unittest.TestCase):
         self.assertEqual(rc, 0, err); self.assertIn(b'FIELD\tCore auto-updates\tMINOR', out)
         rc, out, err = self.summary([snapshot(), snapshot('other.test')])
         self.assertEqual(rc, 0, err); self.assertIn(b'COUNT\t2', out); self.assertIn(b'DIFFCOUNT\t0', out)
+
+    def test_filtered_single_details_keep_only_selected_wordpress_groups(self):
+        rc,out,err=self.summary([snapshot()],'single',areas='locks,php')
+        self.assertEqual(rc,0,err);self.assertIn(b'FIELD\tFile modifications\tLOCKED',out)
+        self.assertNotIn(b'Core auto-updates',out);self.assertNotIn(b'Dashboard editor',out)
+        rc,out,err=self.summary([snapshot()],'single',areas='updates')
+        self.assertEqual(rc,0,err);self.assertIn(b'FIELD\tAutomatic updater\tBLOCKED (DISALLOW_FILE_MODS)',out)
+        self.assertNotIn(b'File modifications',out);self.assertNotIn(b'Query logging',out)
+
+    def test_invalid_detail_areas_refused_without_partial_output(self):
+        for mode,areas in [('single',''),('single','php'),('single','locks,unknown'),('fleet','locks')]:
+            with self.subTest(mode=mode,areas=areas):
+                rc,out,err=self.summary([snapshot()],mode,areas=areas)
+                self.assertEqual(rc,2,out+err);self.assertEqual(out,b'')
 
     def test_missing_field_is_not_mixed_or_consistent(self):
         row = snapshot(); del row['policy']['cron']

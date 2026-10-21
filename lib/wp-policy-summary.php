@@ -3,9 +3,12 @@
 
 require_once __DIR__.'/wp-policy-input.php';
 try {
-    if ($argc < 2 || $argc > 3) throw new RuntimeException('Invalid summary request');
+    if ($argc < 2 || $argc > 4) throw new RuntimeException('Invalid summary request');
     $mode = $argv[2] ?? 'fleet';
     if (!in_array($mode, ['single','fleet'], true)) throw new RuntimeException('Invalid summary mode');
+    $areas = isset($argv[3]) ? explode(',', $argv[3]) : ['wp'];
+    if (($argc === 4 && $mode !== 'single') || array_diff($areas, ['wp','php','updates','locks'])
+        || !array_intersect($areas, ['wp','updates','locks'])) throw new RuntimeException('Invalid summary areas');
     $rows = ph_policy_read_rows($argv[1]);
     if ($mode === 'single' && count($rows) !== 1) throw new RuntimeException('Expected one site');
 } catch (Throwable $e) {
@@ -100,6 +103,11 @@ if ($mode === 'single') {
         'Retention / resources' => array('revisions','trash_days','autosave_interval','wp_memory_limit','wp_max_memory_limit'),
         'Configuration posture' => array('db_charset','db_collate','home_override','siteurl_override','cookie_domain','fs_method'),
     );
+    if (!in_array('wp', $areas, true)) {
+        $groups = [];
+        if (in_array('locks', $areas, true)) $groups['File controls'] = ['file_mods'];
+        if (in_array('updates', $areas, true)) $groups['Updates'] = ['core_updates','plugin_updates','theme_updates','updater'];
+    }
     echo "SITE\t", pwps_safe_piece($row['site']), "\n";
     foreach ($groups as $group => $keys) {
         echo "GROUP\t", $group, "\n";

@@ -1,6 +1,6 @@
 # WordPress automatic-update policy
 
-PressHarden can inspect and deliberately set WordPress core, plugin, and theme auto-update preferences using the same website-name targeting as scan and lock/unlock.
+PressHarden can inspect and deliberately set WordPress core, plugin, and theme auto-update preferences using the same website-name targeting as its other policy commands.
 
 ```bash
 ./pressharden auto-updates status example.com
@@ -22,6 +22,8 @@ Plugin/theme enable and disable use the WordPress/WP-CLI per-item auto-update pr
 
 Core changes back up `wp-config.php` before editing and verify the resulting policy. Plugin/theme changes save the previously enabled item list privately, verify the new count, and attempt to restore the prior list if the operation or verification fails. No command automatically unlocks file modifications or removes a global updater blocker.
 
-The read-only `wp-auto-updates` check is part of Fast and Full. Fleet scans use compact counts rather than printing every site; per-site state is retained in the private detail report. A one-site `auto-updates status example.com` prints the exact core/plugin/theme state directly. The check is informational and does not create a security finding solely because an operator chose minor, major, disabled, enabled, partial, or disabled plugin/theme updates.
+`auto-updates status` is the detailed read-only preference report. Fleet targets use compact counts; per-site state is retained in the private detail report. A target resolving to one installation prints its exact core/plugin/theme state directly. This legacy report is informational and does not create a security finding solely because an operator chose a particular preference. PressHarden has no Fast or Full scan suites.
+
+In the unreleased review checkout, `status -updates [target]` adds a concise view with optional `--verbose` details. It labels disabled core updates and known global updater blockers as `REVIEW`, returning 1 so an operator can assess whether the policy is intentional. Collection or detail-rendering failures return 2. A review item is not evidence of compromise and does not automatically change a preference or remove a blocker.
 
 Core semantics follow WordPress: `WP_AUTO_UPDATE_CORE=true` enables development/minor/major core updates, `false` disables them, and `'minor'` enables minor updates only. WordPress can also disable the entire background updater when file modifications are disallowed or `AUTOMATIC_UPDATER_DISABLED` is true.

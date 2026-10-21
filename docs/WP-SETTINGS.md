@@ -7,7 +7,7 @@
 ./pressharden wp-settings all
 ```
 
-A single website shows the full grouped policy. A fleet target shows three compact baseline groups (Security, Updates, Runtime) and only websites that differ from the unique most-common value. A tied fleet value is reported as `MIXED`; PressHarden does not choose an arbitrary winner. `pressharden status` uses this same read-only policy dashboard. Security suites remain in PressWarden; PressHarden does not provide Fast or Full scan suites.
+A single installation shows the full grouped policy. A fleet target shows three compact baseline groups (Security, Updates, Runtime) and only websites that differ from the unique most-common value. A tied fleet value is reported as `MIXED`; PressHarden does not choose an arbitrary winner. In the unreleased review checkout, `pressharden status` provides a concise per-site WordPress/PHP overview, while `wp-settings` retains this detailed baseline comparison. Its `-locks` and `-updates` selectors narrow both the overview and `--verbose` details; `-wp` includes all WordPress policy groups. Security suites remain in PressWarden; PressHarden does not provide Fast or Full scan suites.
 
 The fleet baseline is a statistical comparison aid, not a security standard or proof that the common value is correct. Policy differences are informational. Use PressWarden separately to investigate security conditions such as debug exposure or suspicious configuration; this policy comparison is not a malware scan.
 

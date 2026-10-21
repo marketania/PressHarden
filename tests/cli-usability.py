@@ -93,10 +93,49 @@ sys.exit(97)
         r=self.cli('status','--verbose','a.test');self.assertEqual(r.returncode,0,r.stdout+r.stderr)
         self.assertIn(b'Local .user.ini',r.stdout);self.assertIn(b'Dashboard editor',r.stdout)
 
+    def test_verbose_details_keep_the_requested_area_scope(self):
+        path=self.base/'fixture.json';row=json.loads(path.read_text())
+        row['policy']['core_updates']='DISABLED';path.write_text(json.dumps(row))
+        cases=[(('status','-locks','--verbose','a.test'),0,[b'File modifications'],[b'Core auto-updates',b'Dashboard editor',b'Query logging',b'Local .user.ini']),
+               (('check','-updates','--verbose','--target','a.test'),1,[b'Core auto-updates',b'Automatic updater'],[b'File modifications',b'Dashboard editor',b'Query logging',b'Local .user.ini']),
+               (('status','-php','-locks','--verbose','a.test'),0,[b'File modifications',b'Local .user.ini'],[b'Core auto-updates',b'Query logging',b'Dashboard editor'])]
+        for args,code,present,absent in cases:
+            with self.subTest(args=args):
+                r=self.cli(*args);self.assertEqual(r.returncode,code,r.stdout+r.stderr)
+                for text in present:self.assertIn(text,r.stdout)
+                for text in absent:self.assertNotIn(text,r.stdout)
+                self.assertNotIn(b'b.test',r.stdout)
+        self.assertEqual(len(self.calls()),len(cases))
+
+    def test_requested_detail_failure_is_incomplete_and_never_prints_partial_details(self):
+        wrapper=self.bin/'php'
+        wrapper.write_text('''#!/bin/sh
+case "${1##*/}:${2:-}" in
+ wp-policy-summary.php:*)
+  if [ "$PH_RENDER_FAILURE" = wp ]; then printf 'FIELD\\tprivate\\tINERT-PARTIAL-DETAIL\\n'; exit 2; fi ;;
+ status-summary.php:php-details)
+  if [ "$PH_RENDER_FAILURE" = php ]; then printf 'INERT-PARTIAL-DETAIL\\n'; exit 2; fi ;;
+esac
+exec "$PH_REAL_PHP" "$@"
+''');wrapper.chmod(0o755)
+        before={p:p.read_bytes() for p in self.fleet.rglob('*') if p.is_file()}
+        for area in ('wp','php'):
+            with self.subTest(area=area):
+                r=self.cli('status','-'+area,'--verbose','a.test',env=dict(self.env,PH_RENDER_FAILURE=area,PH_REAL_PHP=shutil.which('php')))
+                self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+                self.assertIn(b'Incomplete: 1',r.stdout)
+                self.assertRegex(r.stdout,rb'INCOMPLETE\s+a\.test')
+                self.assertIn(b'details: INCOMPLETE',b' '.join(r.stdout.split()))
+                self.assertIn(b'pressharden doctor --target SITE',r.stdout)
+                self.assertNotIn(b'INERT-PARTIAL-DETAIL',r.stdout+r.stderr)
+        self.assertEqual(before,{p:p.read_bytes() for p in self.fleet.rglob('*') if p.is_file()})
+
     def test_bad_target_or_option_never_broadens_to_fleet(self):
         for args in [('status',''),('status','missing.test'),('status','-bogus'),
                      ('status','--target',''),('status','--target'),('status','a.test','--target','b.test'),
                      ('status','--target=a.test','--target=b.test'),
+                     ('status','--target','--color=never','all'),
+                     ('lock','--target','--color=never','all'),
                      ('file-mods','--target','on'),('wp-settings','--target','status'),('php','--target','status')]:
             with self.subTest(args=args):
                 r=self.cli(*args);self.assertEqual(r.returncode,2,r.stdout+r.stderr)
@@ -108,6 +147,137 @@ sys.exit(97)
             r=self.cli(*args);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
         r=self.cli('update','unexpected');self.assertEqual(r.returncode,2)
         self.assertEqual(self.calls(),[]);self.assertFalse((self.base/'network').exists())
+
+    def test_setup_and_update_help_explain_scope_and_source_without_operations(self):
+        for args in [('help','setup'),('help','config'),('config','--help'),('config-new','--help')]:
+            r=self.cli(*args);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+            self.assertIn(b'PRESSHARDEN_SCAN_ROOT',r.stdout)
+            self.assertIn(b'pressharden status --target SITE',r.stdout)
+        for args in [('help','update'),('update','--help'),('update','-h')]:
+            r=self.cli(*args);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+            self.assertIn(b'branch main',r.stdout)
+            self.assertIn(b'PRESSHARDEN_UPDATE_ARCHIVE',r.stdout)
+            self.assertIn(b'Git working trees refuse self-update',r.stdout)
+        self.assertEqual(self.calls(),[]);self.assertFalse((self.base/'network').exists())
+
+    def test_doctor_does_not_report_empty_or_excluded_scope_as_ready(self):
+        empty=self.base/'empty';empty.mkdir()
+        for env in (dict(self.env,PRESSHARDEN_SCAN_ROOT=str(empty)),
+                    dict(self.env,PRESSHARDEN_EXCLUDE='a.test b.test')):
+            r=self.cli('doctor',env=env);self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+            self.assertIn(b'No eligible WordPress installations',r.stdout)
+            self.assertIn(b'PRESSHARDEN_SCAN_ROOT',r.stdout)
+        r=self.cli('doctor','a.test');self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertIn(b'Selected installations: 1',r.stdout)
+        self.assertEqual(self.calls(),[])
+
+    def test_config_propagates_invalid_root_and_explains_invalid_operands(self):
+        linked=self.base/'linked';linked.symlink_to(self.fleet,target_is_directory=True)
+        r=self.cli('config',env=dict(self.env,PRESSHARDEN_SCAN_ROOT=str(linked)))
+        self.assertEqual(r.returncode,2,r.stdout+r.stderr);self.assertIn(b'symlink',r.stderr)
+        self.assertNotIn(b'Root:',r.stdout)
+        for args in [('config','a.test'),('version','extra'),('config','--target','a.test')]:
+            r=self.cli(*args);self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+            self.assertIn(b'Usage:',r.stderr)
+        r=self.cli('config');self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertIn(str(self.fleet).encode(),r.stdout)
+        self.assertEqual(self.calls(),[])
+
+    def test_multiline_exported_root_is_refused_without_narrowing_it(self):
+        before={p:p.read_bytes() for p in self.fleet.rglob('*') if p.is_file()}
+        for suffix in ('\ninvalid','\n'):
+            env=dict(self.env,PRESSHARDEN_SCAN_ROOT=str(self.fleet)+suffix,PRESSHARDEN_INTERACTIVE='0')
+            for args in [('status',),('lock',)]:
+                with self.subTest(suffix=repr(suffix),args=args):
+                    r=self.cli(*args,env=env);self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+                    self.assertEqual(self.calls(),[])
+            r=subprocess.run(['bash',str(ROOT/'checks/status.sh'),'wp,php','0'],
+                             env=env,capture_output=True,timeout=10)
+            self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+            self.assertEqual(self.calls(),[])
+        self.assertEqual(before,{p:p.read_bytes() for p in self.fleet.rglob('*') if p.is_file()})
+
+    def test_multiline_exported_exclusions_retain_every_site(self):
+        env=dict(self.env,PRESSHARDEN_EXCLUDE='missing.test\nb.test\n')
+        r=self.cli('status',env=env);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertIn(b'a.test',r.stdout);self.assertNotIn(b'b.test',r.stdout)
+        self.assertEqual(len(self.calls()),1);self.assertEqual(self.calls()[0][2],'a.test')
+        (self.base/'calls').unlink()
+        env['PRESSHARDEN_EXCLUDE']='a.test\nb.test'
+        r=self.cli('status',env=env);self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        r=subprocess.run(['bash',str(ROOT/'checks/status.sh'),'wp,php','0'],
+                         env=env,capture_output=True,timeout=10)
+        self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertEqual(self.calls(),[])
+
+    def test_exported_root_and_empty_exclusions_override_saved_values(self):
+        config=Path(self.env['PRESSHARDEN_CONFIG_FILE'])
+        config.write_text('PRESSHARDEN_SCAN_ROOT="$PH_TEST_BASE/absent-saved-fleet"\nPRESSHARDEN_EXCLUDE=a.test\n')
+        config.chmod(0o600)
+        r=self.cli('status',env=dict(self.env,PRESSHARDEN_EXCLUDE='b.test'))
+        self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertIn(b'a.test',r.stdout);self.assertNotIn(b'b.test',r.stdout)
+        self.assertEqual(len(self.calls()),1);self.assertEqual(self.calls()[0][2],'a.test')
+        r=self.cli('status',env=dict(self.env,PRESSHARDEN_EXCLUDE=''))
+        self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertIn(b'a.test',r.stdout);self.assertIn(b'b.test',r.stdout)
+        self.assertEqual(len(self.calls()),3)
+
+    def test_readonly_saved_value_cannot_silently_defeat_exported_scope(self):
+        config=Path(self.env['PRESSHARDEN_CONFIG_FILE'])
+        config.write_text('readonly PRESSHARDEN_SCAN_ROOT="$PH_TEST_BASE/fleet"\n');config.chmod(0o600)
+        env=dict(self.env,PRESSHARDEN_SCAN_ROOT=str(self.fleet/'a.test/public_html'),PRESSHARDEN_INTERACTIVE='0')
+        for args in [('status',),('lock',)]:
+            r=self.cli(*args,env=env);self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+            self.assertIn(b'Configuration override could not be restored: PRESSHARDEN_SCAN_ROOT',r.stderr)
+        r=subprocess.run(['bash',str(ROOT/'checks/status.sh'),'wp,php','0'],
+                         env=env,capture_output=True,timeout=10)
+        self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertIn(b'Configuration override could not be restored: PRESSHARDEN_SCAN_ROOT',r.stderr)
+        self.assertEqual(self.calls(),[])
+
+    def test_broken_config_never_runs_a_partial_prefix_or_reaches_operations(self):
+        config=Path(self.env['PRESSHARDEN_CONFIG_FILE'])
+        config.write_text('printf loaded > "$PH_TEST_BASE/config-loaded"\nINERT_CONFIG_SECRET=do-not-print )\n')
+        config.chmod(0o600)
+        before={p:p.read_bytes() for p in self.fleet.rglob('*') if p.is_file()}
+        for args in [('status',),('wp-settings','set','editor','disabled'),('update',)]:
+            r=self.cli(*args,env=dict(self.env,PRESSHARDEN_INTERACTIVE='0'))
+            self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+            self.assertIn(b'Invalid Bash syntax',r.stderr)
+            self.assertNotIn(b'INERT_CONFIG_SECRET',r.stdout+r.stderr)
+            self.assertFalse((self.base/'config-loaded').exists())
+        r=subprocess.run(['bash',str(ROOT/'checks/status.sh'),'wp,php','0'],
+                         env=self.env,capture_output=True,timeout=10)
+        self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertIn(b'Invalid Bash syntax',r.stderr)
+        self.assertFalse((self.base/'config-loaded').exists())
+        r=self.cli('config-new');self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertFalse((self.base/'config-loaded').exists())
+        self.assertEqual(self.calls(),[]);self.assertFalse((self.base/'network').exists())
+        self.assertEqual(before,{p:p.read_bytes() for p in self.fleet.rglob('*') if p.is_file()})
+
+    def test_config_source_failure_is_not_ignored_and_valid_shell_config_still_works(self):
+        config=Path(self.env['PRESSHARDEN_CONFIG_FILE']);config.write_text('return 7\n');config.chmod(0o600)
+        r=self.cli('status');self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertIn(b'configuration returned an error',r.stderr)
+        r=subprocess.run(['bash',str(ROOT/'checks/status.sh'),'wp,php','0'],
+                         env=self.env,capture_output=True,timeout=10)
+        self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertEqual(self.calls(),[])
+        config.write_text('if [ -n "${HOME:-}" ]; then\n PRESSHARDEN_DISCOVERY_DEPTH=8\nfi\n')
+        r=self.cli('status','-php','a.test');self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+        self.assertIn(b'a.test',r.stdout);self.assertNotIn(b'b.test',r.stdout)
+        self.assertEqual(self.calls(),[])
+
+    def test_config_directory_or_dangling_link_never_falls_back_to_defaults(self):
+        config=Path(self.env['PRESSHARDEN_CONFIG_FILE']);config.mkdir()
+        r=self.cli('status');self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertIn(b'Cannot read PressHarden configuration',r.stderr)
+        config.rmdir();config.symlink_to(self.base/'absent-config-target')
+        r=self.cli('status');self.assertEqual(r.returncode,2,r.stdout+r.stderr)
+        self.assertIn(b'Cannot read PressHarden configuration',r.stderr)
+        self.assertEqual(self.calls(),[])
 
     def test_status_partial_failure_retains_other_site_and_returns_incomplete(self):
         self.env['PH_FAIL_SITE']='a.test';r=self.cli('status')

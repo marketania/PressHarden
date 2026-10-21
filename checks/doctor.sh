@@ -9,6 +9,11 @@ for executable in bash php find sort stat mktemp tar; do
 done
 if command -v wp >/dev/null 2>&1; then printf '  ✓ WP-CLI available\n'; else printf '  ✖ WP-CLI missing; WordPress operations are unavailable\n'; failed=1; fi
 if [ "${PH_DISCOVERY_FAILED:-0}" -ne 0 ]; then printf '  ✖ Discovery incomplete\n'; failed=1; fi
+if [ "${#SCAN_ROOTS[@]}" -eq 0 ]; then
+  printf '  ✖ No eligible WordPress installations found; readiness is INCOMPLETE.\n'
+  printf '    Check PRESSHARDEN_SCAN_ROOT, discovery depth and exclusions; rerun pressharden sites.\n'
+  failed=1
+fi
 printf '  Selected installations: %s\n  State: %s\n  Cache: %s\n' "${#SCAN_ROOTS[@]}" "$PRESSHARDEN_STATE_DIR" "$PRESSHARDEN_CACHE_DIR"
 printf '  Config is trusted shell code: %s\n' "$PRESSHARDEN_CONFIG_FILE"
 printf '  No websites, PHP settings, cache or databases were changed.\n'
