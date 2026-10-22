@@ -8,7 +8,7 @@
 
 PressHarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.
 
-> **About this checkout:** the combined `status`/`check` commands, area selectors, and new help shown below are **unreleased review changes**. The published [v0.1.1 release](https://github.com/marketania/PressHarden/releases/tag/v0.1.1) predates them. This checkout still reports version `0.1.1`; identify reviewed code by its commit or release provenance as well as its version. See the [unreleased changelog](CHANGELOG.md).
+**This guide describes PressHarden 0.1.2**, including combined `status`/`check`, area selectors, colored summaries, and grouped help. Read the [0.1.2 release notes](docs/releases/0.1.2.md) for the changes. Existing users can follow [Update and uninstall](#update-and-uninstall), then check `./pressharden version` and `./pressharden help`.
 
 ## Other Press tools
 
@@ -32,7 +32,7 @@ Install outside website document roots, run as the site owner, and begin on a st
 
 ### Recommended: install the exact source you reviewed
 
-Use an extracted release distribution or a reviewed checkout. Published [release assets](https://github.com/marketania/PressHarden/releases) include the source archive, `SHA256SUMS`, `SOURCE.json`, and release notes; verify the corresponding files before installation. The v0.1.1 archive contains that release's commands. To try this README's unreleased features, use this reviewed checkout as the source.
+Download `PressHarden-0.1.2.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the [v0.1.2 release](https://github.com/marketania/PressHarden/releases/tag/v0.1.2). Verify the archive against the checksums, extract it, and review its source and `install.sh`. Other published [release assets](https://github.com/marketania/PressHarden/releases) have their own bundled help and release notes.
 
 From the source directory:
 
@@ -43,6 +43,7 @@ bash ./install.sh
 
 cd "$HOME/tools/PressHarden"
 ./pressharden version
+./pressharden help
 ```
 
 This creates a separate portable installation with private configuration and state. The destination must not already exist. Keep the source checkout separate; an installed distribution uses the updater, while a Git checkout is maintained through Git.
@@ -61,7 +62,7 @@ less ./pressharden-install.sh
 PRESSHARDEN_INSTALL_PREFIX="$HOME/tools/PressHarden" bash ./pressharden-install.sh
 ```
 
-Both the downloaded installer and its default source archive follow **moving `main`**. This method does not select a release tag or this review branch. Use the local-source method above when you need a particular reviewed tree. Installation validates source identity, archive layout, and syntax, and installs PressHarden alone.
+Both the downloaded installer and its default source archive follow **moving `main`**. Use the local-source method above to install a specific release or reviewed tree. Installation validates source identity, archive layout, and syntax, and installs PressHarden alone.
 
 ## First run: choose a site before changing anything
 
@@ -200,13 +201,20 @@ Stop competing administrative processes before updates or mutations. Locks coord
 
 ## Update and uninstall
 
-`./pressharden update` defaults to the **`main` branch**. An explicit `PRESSHARDEN_REF` selects a branch or tag. Check the intended source before refreshing an installation, especially when testing unreleased changes. Git working trees refuse self-update by default; maintain reviewed checkouts through Git.
+Finish other operations, then run these commands from your installed PressHarden directory:
+
+```bash
+./pressharden update
+./pressharden version
+./pressharden config-new
+```
+
+`update` defaults to the moving **`main` branch**. To select this release explicitly, use `PRESSHARDEN_REF=v0.1.2 ./pressharden update`. Git working trees refuse self-update by default; maintain reviewed checkouts through Git. `config-new` previews any missing configuration options for you to review.
 
 `./pressharden update` targets `marketania/PressHarden`, never a sibling and never threat feeds. For isolated validation or recovery, test/update with a local validated distribution archive:
 
 ```bash
 PRESSHARDEN_UPDATE_ARCHIVE=/absolute/path/PressHarden.tar.gz ./pressharden update
-./pressharden config-new
 ```
 
 The updater preserves private configuration and state, validates product identity and source layout, and retains recovery data on failure. See [update and recovery details](docs/UPDATING.md), or run `./pressharden help update`.
