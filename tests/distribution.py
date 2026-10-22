@@ -5,7 +5,7 @@ import re
 root=Path(__file__).resolve().parents[1]
 product=(root/'PRODUCT').read_text().strip();program=product.lower()
 errors=[]
-for required in [program,'VERSION','PRODUCT','README.md','LICENSE','install.sh','uninstall.sh','config/config.example','lib/_lib.sh','lib/update.sh','lib/target-path.php','tests/run.sh']:
+for required in [program,'VERSION','PRODUCT','README.md','LICENSE','install.sh','uninstall.sh','config/config.example','lib/_lib.sh','lib/update.sh','lib/target-path.php','tests/run.sh','lib/cli-ui.sh','checks/status.sh','lib/status-summary.php','lib/wp-policy-collect.sh','lib/wp-policy-input.php']:
  if not (root/required).is_file():errors.append('Missing '+required)
 for file in root.rglob('*.md'):
  if '.git' in file.parts or 'var' in file.parts:continue

@@ -16,7 +16,7 @@ for s in "${SCAN_ROOTS[@]}"; do
     case "${cur,,}" in
       1|true) printf '    %sLOCKED%s    %s\n' "$G" "$X" "$label" ;;
       0|false) printf '    %sUNLOCKED%s  %s\n' "$Y" "$X" "$label" ;;
-      *) printf '    %sNOT CONFIRMED%s  %s — restriction absent or unreadable\n' "$Y" "$X" "$label" ;;
+      *) printf '    %sNOT CONFIRMED%s  %s — restriction absent or unreadable\n' "$Y" "$X" "$label"; failed=1 ;;
     esac
     continue
   fi

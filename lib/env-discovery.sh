@@ -10,24 +10,29 @@ else
   PRESSHARDEN_CONFIG_FILE="${PRESSHARDEN_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/pressharden/config}"
 fi
 PRESSHARDEN_CONFIG_LOADED=0
-_pressharden_env_overrides=$(env | grep -E '^(PRESSHARDEN_[A-Za-z0-9_]*)=' || true)
-if [ -r "$PRESSHARDEN_CONFIG_FILE" ]; then
+. "$PRESSHARDEN_DIR/lib/cli-ui.sh"
+ph_cli_save_environment || exit 2
+if [ -e "$PRESSHARDEN_CONFIG_FILE" ] || [ -L "$PRESSHARDEN_CONFIG_FILE" ]; then
+  [ -f "$PRESSHARDEN_CONFIG_FILE" ] && [ -r "$PRESSHARDEN_CONFIG_FILE" ] || { printf 'Cannot read PressHarden configuration: %q. No operation started.\n' "$PRESSHARDEN_CONFIG_FILE" >&2; exit 2; }
+  if ! bash -n "$PRESSHARDEN_CONFIG_FILE" 2>/dev/null; then
+    printf 'Invalid Bash syntax in PressHarden configuration: %q. No operation started.\n' "$PRESSHARDEN_CONFIG_FILE" >&2
+    printf 'Correct the configuration first; config-new previews template additions without loading it.\n' >&2
+    exit 2
+  fi
   _pressharden_cfg_mode=$(stat -c %a "$PRESSHARDEN_CONFIG_FILE" 2>/dev/null || printf '')
   case "$_pressharden_cfg_mode" in
     600|400|'') : ;;
     *) printf 'PressHarden warning: config %s has mode %s; use chmod 600 when it contains API keys.\n' "$PRESSHARDEN_CONFIG_FILE" "$_pressharden_cfg_mode" >&2 ;;
   esac
   # shellcheck disable=SC1090
-  . "$PRESSHARDEN_CONFIG_FILE"
+  if ! . "$PRESSHARDEN_CONFIG_FILE"; then
+    printf 'PressHarden configuration returned an error: %q. No operation started.\n' "$PRESSHARDEN_CONFIG_FILE" >&2
+    exit 2
+  fi
   PRESSHARDEN_CONFIG_LOADED=1
   unset _pressharden_cfg_mode
 fi
-if [ -n "$_pressharden_env_overrides" ]; then
-  while IFS='=' read -r _pressharden_k _pressharden_v; do
-    case "$_pressharden_k" in PRESSHARDEN_*) printf -v "$_pressharden_k" '%s' "$_pressharden_v"; export "$_pressharden_k" ;; esac
-  done <<< "$_pressharden_env_overrides"
-fi
-unset _pressharden_env_overrides _pressharden_k _pressharden_v 2>/dev/null || true
+ph_cli_restore_environment || exit 2
 export PRESSHARDEN_PORTABLE
 
 if [ -n "${ROOT:-}" ]; then
@@ -63,11 +68,7 @@ PRESSHARDEN_EXCLUDE="${PRESSHARDEN_EXCLUDE:-${PRESSHARDEN_EXCLUDE_DOMAINS:-}}"
 (umask 077; mkdir -p "$PRESSHARDEN_CACHE_DIR") 2>/dev/null || true
 export LC_ALL=C
 
-if { [ -n "${PRESSHARDEN_FORCE_COLOR:-}" ] || [ -t 1 ] || [ -t 2 ]; } && [ -z "${PRESSHARDEN_NOCOLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
-  B=$'\033[1m'; D=$'\033[2m'; U=$'\033[4m'; R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; BL=$'\033[34m'; M=$'\033[35m'; C=$'\033[36m'; WHT=$'\033[37m'; X=$'\033[0m'
-else
-  B=''; D=''; U=''; R=''; G=''; Y=''; BL=''; M=''; C=''; WHT=''; X=''
-fi
+ph_ui_init || exit 2
 _cols=$(tput cols 2>/dev/null || printf '92'); case "$_cols" in ''|*[!0-9]*) _cols=92 ;; esac; [ "$_cols" -lt 68 ] && _cols=68; [ "$_cols" -gt 108 ] && _cols=108; W=$_cols; unset _cols
 TOTAL=0; ALERTS=0; REVIEWS=0; DELETED=0; PROTECTED_SKIPPED=0; SECN=0; T0=$(date +%s); SEC_T0=$T0
 NAME="${NAME:-check}"; DESC="${DESC:-}"; CURRENT_SECTION=""; SCAN_DOES="${SCAN_DOES:-}"; SCAN_WHY="${SCAN_WHY:-}"

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.2 — 2026-10-21
+
+- Validate saved shell configuration before loading it and stop on unreadable files or loading errors; malformed configuration can no longer continue into a partially configured fleet operation. Keep `config-new` available without loading the file.
+- Preserve exact exported configuration overrides, including multiline exclusions; reject invalid multiline roots without truncating them into a valid fleet scope. Refuse operations when a saved readonly value prevents restoring an explicit override.
+- Keep `status --verbose` within the selected areas. Mark failed requested detail views incomplete before printing the site badge, and withhold partial detail output.
+- Return incomplete from `doctor` when discovery finds no eligible installations; propagate invalid roots from `config` and add focused setup/update help.
+- Rewrite onboarding around reviewed-source installation, explicit first-site scope, result meanings and recovery. Explain selected releases and moving-main installation/update defaults; retain all credits, artwork and original link destinations.
+- Consolidate read-only status/check into one concise WordPress/PHP overview, with additive `-wp`, `-php`, `-updates`, and `-locks` selectors and optional `--verbose` details.
+- Add grouped quick help, full/topic help, named `--target` support, and explicit terminal color controls. Respect `NO_COLOR`, plain redirected output, and `TERM=dumb`.
+- Inspect WAF/autoload INI entries as inert text for status without disclosing their paths; keep strict write refusal.
+- Prevent operation `--help` and stray updater arguments from reaching mutation/update handlers.
+- Return incomplete when lock state cannot be read; reject impossible or oversized automatic-update inventory counts before status or mutation decisions.
+- Integrate the previously reviewed PHP, transaction and dashboard safety fixes below while preserving independent-tool boundaries.
+
+- Validate complete, site-bound policy records before normalized logs; refuse missing/extra fields, warnings and duplicate fleet rows. Escape terminal/bidi controls in dashboards and bound snapshot reads. Add 15 inert output/schema methods.
+
+- Refuse linked or unsafe shell transaction/lock state directories before recovery writes or permission changes, and revalidate parents under the writer lock. Add real-filesystem regressions and isolated WP-CLI shell-engine integration. Use noclobber for shell config publication so a link inserted after the existence check cannot redirect the write.
+
+- Quote SameSite string values so INI `None` is not interpreted as empty; fix the corresponding incorrect no-op.
+- Respect explicitly disabled/nondefault user-INI filenames and refuse array, duplicate or environment-driven target directives.
+- Remove WP-CLI dependency from the inert local PHP workflow; preview validated current/proposed values before per-site approval.
+- Bound reads, strengthen file/lock identity checks and verify private recovery metadata before publication. Preserve web-effect uncertainty.
+- Add real INI, filesystem, PTY, lock and attribution regressions without changing WordPress update policies.
+
 ## 0.1.1 — 2026-09-24
 
 - Explicitly empty or invalid `sites` directory arguments now stop with exit 2 instead of falling back to fleet inventory.

@@ -4,11 +4,11 @@
   <img src="docs/assets/press-tool-family.webp" alt="PressWarden blue security shield, PressHarden green policy shield, and PressGarden gold maintenance shield" width="700">
 </p>
 
-Fleet-scale **WordPress hardening and security policy management** from the shell.
-
-Owns desired-state configuration, not malware scans, vulnerability feeds, cache management or database cleanup.
+**Inspect WordPress and PHP policy, understand what needs review, and make deliberate configuration changes from the shell.** PressHarden covers file-modification controls, dashboard settings, automatic-update preferences, authentication salts, and supported local PHP settings across your local WordPress installations.
 
 PressHarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.
+
+**This guide describes PressHarden 0.1.2**, including combined `status`/`check`, area selectors, colored summaries, and grouped help. Read the [0.1.2 release notes](docs/releases/0.1.2.md) for the changes. Existing users can follow [Update and uninstall](#update-and-uninstall), then check `./pressharden version` and `./pressharden help`.
 
 ## Other Press tools
 
@@ -17,97 +17,199 @@ PressHarden is part of the **Press Tool Family**. Other standalone tools are ava
 - **[PressWarden](https://github.com/marketania/PressWarden)** — WordPress security auditing, malware and vulnerability detection, compromise investigation, integrity checks, and incident response.
 - **[PressGarden](https://github.com/marketania/PressGarden)** — WordPress maintenance, database health, cleanup, caching, LiteSpeed management, and performance operations.
 
-Use PressHarden when you need to **configure, harden, and enforce a desired secure WordPress/PHP posture**. The sibling tools are independent applications, not required dependencies.
+PressHarden owns desired-state configuration. Malware investigation, routine cleanup, cache management, and database maintenance remain with the relevant independent tools; none is a runtime dependency of another.
+
+## Requirements
+
+- Linux, Bash 4+, PHP CLI, GNU coreutils/find/tar, and a shell account that owns the selected sites. Use a currently security-supported, patched [PHP version](https://www.php.net/supported-versions.php); legacy PHP 7.4 syntax compatibility is retained for testing.
+- WP-CLI (`wp`) and working WordPress/database access for WordPress policy inspection and changes. Static `status -php` and `php status` work without WP-CLI.
+- `flock` for the shell transaction and per-site mutation locks. The PHP transaction engine uses PHP process support when available; the guarded shell fallback remains available where `proc_open` is disabled.
+- `curl` for remote installation; the updater can use `curl` or `wget`. Local-source installation does not download another application.
+
+Install outside website document roots, run as the site owner, and begin on a staging installation. The [public-readiness audit and rollout checklist](docs/PUBLIC-READINESS.md) describes the checks to complete before wider use.
 
 ## Install this distribution
 
-**Production runtime:** use an upstream-supported, security-patched PHP version. PHP 8.2–8.5 are supported at the September 2026 audit date; retained PHP 7.4 syntax tests are not a recommendation to deploy end-of-life PHP.
+### Recommended: install the exact source you reviewed
 
-Read the [public-readiness audit and rollout checklist](docs/PUBLIC-READINESS.md) before fleet-wide use. Start on one staging site, verify recovery, and run as the site owner rather than root.
+Download `PressHarden-0.1.2.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the [v0.1.2 release](https://github.com/marketania/PressHarden/releases/tag/v0.1.2). Verify the archive against the checksums, extract it, and review its source and `install.sh`. Other published [release assets](https://github.com/marketania/PressHarden/releases) have their own bundled help and release notes.
 
-Requirements: Linux, Bash 4+, PHP CLI 7.4+, coreutils/find/tar; WP-CLI and its database clients for WordPress/database operations. Some operations need `flock`. Use only the installer published in this tool’s own repository. For a reviewed release, `curl -fsSLo install.sh https://raw.githubusercontent.com/marketania/PressHarden/main/install.sh` followed by `bash install.sh` installs this tool alone.
-
-From this extracted tree:
+From the source directory:
 
 ```bash
 PRESSHARDEN_INSTALL_SOURCE="$PWD" \
 PRESSHARDEN_INSTALL_PREFIX="$HOME/tools/PressHarden" \
 bash ./install.sh
+
+cd "$HOME/tools/PressHarden"
+./pressharden version
+./pressharden help
 ```
 
-Remote installer example above replaces only your downloaded installer file; do not run it from an existing source tree when reviewing that tree.
+This creates a separate portable installation with private configuration and state. The destination must not already exist. Keep the source checkout separate; an installed distribution uses the updater, while a Git checkout is maintained through Git.
 
-For a user-wide symlink, set `PRESSHARDEN_INSTALL_MODE=user` instead of a portable prefix. Existing installation destinations are refused; use their `update` command. The independent installer validates archive paths, identity and syntax; it never downloads the sibling tools.
+For a user-wide executable symlink, set `PRESSHARDEN_INSTALL_MODE=user`. Its default program directory is `$HOME/.local/share/pressharden`, and its symlink is `$HOME/.local/bin/pressharden`; XDG settings and explicit install overrides can change those paths.
 
-## Commands
+### Alternative: install the current `main` branch
+
+Use only this tool's official installer. Download it into a separate directory, review it, and choose the installation prefix:
 
 ```bash
-./pressharden status example.com
-./pressharden lock example.com
-./pressharden unlock example.com
-./pressharden lock-status example.com
-./pressharden wp-settings set editor disabled example.com
-./pressharden wp-settings set debug-display disabled example.com
-./pressharden auto-updates core disabled example.com
-./pressharden auto-updates plugins disable example.com
-./pressharden auto-updates themes disable example.com
-./pressharden php status example.com
-./pressharden php inspect example.com --details
-./pressharden salts rotate auth example.com
-./pressharden sites
-./pressharden doctor example.com
-./pressharden config
-./pressharden help
-./pressharden --version
+mkdir -p "$HOME/pressharden-download"
+cd "$HOME/pressharden-download"
+curl -fsSLo pressharden-install.sh https://raw.githubusercontent.com/marketania/PressHarden/main/install.sh
+less ./pressharden-install.sh
+PRESSHARDEN_INSTALL_PREFIX="$HOME/tools/PressHarden" bash ./pressharden-install.sh
 ```
 
-Use `example.com`, `example.com/shop`, an absolute directory, or explicit `all`. A named parent includes intended discovered nested installations. Exclusions are preserved after narrowing. Omitted targets use the configured fleet; **unknown, empty, excluded or ambiguous targets do not fall back to all**. Always inspect `sites` before fleet mutations.
+Both the downloaded installer and its default source archive follow **moving `main`**. Use the local-source method above to install a specific release or reviewed tree. Installation validates source identity, archive layout, and syntax, and installs PressHarden alone.
+
+## First run: choose a site before changing anything
+
+The following commands inspect local installations and leave their settings unchanged. Replace the example root with your hosting account's site directory, then use a name printed by `sites`:
+
+```bash
+cd "$HOME/tools/PressHarden"
+export PRESSHARDEN_SCAN_ROOT="/absolute/path/to/your/sites"
+./pressharden config
+./pressharden sites
+./pressharden doctor --target example.com
+./pressharden status --target example.com
+```
+
+`config` shows the resolved discovery root, configuration path, state path, and interaction mode. `sites` discovers WordPress directories without loading WordPress. `doctor` checks local dependencies and the selected installation count. A root with no eligible installations is incomplete, so correct discovery before continuing.
+
+**Check the selected count.** A parent such as `example.com` includes discovered nested installations. If `sites` also lists `example.com/shop`, use that exact nested name or its absolute directory when that is the intended scope. A website name selects a local directory; it does not connect to a remote server.
+
+For more detail, keep the same explicit target:
+
+```bash
+./pressharden status --verbose --target example.com
+./pressharden status -php --target example.com
+./pressharden help setup
+```
+
+WordPress status loads WordPress through WP-CLI with ordinary plugins, themes, and packages skipped. MU-plugins and early bootstrap code can still execute. Use static PHP inspection or an isolated copy when you do not trust the installation's code.
+
+![PressHarden status preview using reserved test sites](docs/assets/cli-status-preview.png)
+
+*Captured from actual `pressharden status --color=always` output using the repository's inert `.test` fixtures.*
+
+## Everyday commands
+
+| What you want to do | Command |
+| --- | --- |
+| Read the combined WordPress and local PHP overview | `./pressharden status --target example.com` |
+| Inspect local PHP without WP-CLI | `./pressharden status -php --target example.com` |
+| Check file-modification restrictions | `./pressharden check -locks --target example.com` |
+| Read automatic-update preferences and blockers | `./pressharden status -updates --target example.com` |
+| Show details for selected areas | `./pressharden status -php -locks --verbose --target example.com` |
+| Compare the descriptive WordPress fleet baseline | `./pressharden wp-settings all` |
+| Diagnose dependencies and discovery | `./pressharden doctor --target example.com` |
+| Find change commands and the full reference | `./pressharden help configure` / `./pressharden help all` |
+
+`check` is an alias for `status`. With no area selector, both WordPress and PHP are inspected. Selectors are additive, and `--verbose` respects the selected areas:
+
+| Selector | Scope |
+| --- | --- |
+| `-wp` / `--wp` | WordPress policy, including file controls and update preferences |
+| `-php` / `--php` | Static root `.user.ini` observations; verbose mode adds CLI values |
+| `-updates` / `--updates` | Core/plugin/theme update preferences and known blockers |
+| `-locks` / `--locks` | File-modification restriction |
+
+Color is automatic when standard output is a terminal. Use `--color=always`, `--color=never`, or `--no-color`; `NO_COLOR` and `PRESSHARDEN_NOCOLOR` keep output plain. Automatic mode respects `TERM=dumb` and redirected output. Explicit `--color=always` overrides the terminal hint. Operation `--help` displays guidance without starting the operation.
+
+## Understanding the results
+
+| Label | Meaning |
+| --- | --- |
+| **OBSERVED** | The selected policy data was collected. This is not a security certification. |
+| **REVIEW** | A supported check identified something to assess, such as production debugging, a repair endpoint, or blocked automatic updates. |
+| **UNVERIFIED** | Local PHP information was read, but its effective web/FPM behavior has not been measured. |
+| **INCOMPLETE** | Required data, discovery, or a requested detail view could not be read and validated. Resolve the error before relying on that view. |
+
+Review messages are contextual. An update blocker can be an intentional deployment policy. An unlocked site is an observation, not automatically a vulnerability. The fleet baseline is the most common observed value, not a recommended security standard. Use the [WordPress policy reference](docs/WP-SETTINGS.md) and [automatic-update reference](docs/AUTO-UPDATES.md) to interpret individual fields.
+
+### Exit codes
+
+For `status` and `check`, **0** means the selected inspections completed with no flagged review items, **1** means review items, and **2** means incomplete/error. Unknown effective web PHP alone does not fail a completed static inspection. Review the printed summary before interpreting a nonzero exit as a failed command.
+
+Other operations document their own outcomes: declined changes and PHP settings awaiting web verification can return 1; invalid requests or failed verification return 2. `lock-status` returns 2 when the configured restriction is absent or unreadable. A successful provider command establishes command completion, not independently measured service behavior.
 
 ## State and configuration
 
-Portable: `config/config`, `var/`, `var/cache/`, `var/reports/` beneath this product's installation. User-wide: `$XDG_CONFIG_HOME/pressharden/config`, `$XDG_STATE_HOME/pressharden/`, `$XDG_CACHE_HOME/pressharden/` with standard home-directory fallbacks. Override with `PRESSHARDEN_CONFIG_FILE`, `PRESSHARDEN_STATE_DIR`, `PRESSHARDEN_CACHE_DIR`, `PRESSHARDEN_REPORTS_DIR`. State/backups must be outside selected WordPress roots. No `PRESSWARDEN_*` compatibility variables are consumed by the new product.
+Set `PRESSHARDEN_SCAN_ROOT` explicitly for predictable scope. If it is omitted, discovery uses installation-mode and host-layout defaults; `config` shows the resolved root. Persist your chosen root in the configuration file that `config` reports. Explicitly exported `PRESSHARDEN_*` variables override saved values for one invocation or shell session.
 
-Configuration is trusted shell input. Keep it administrator-owned and mode 600. Discovery and interaction options are in `config/config.example`; only product-relevant settings are included. Backups are never automatically pruned.
+| Installation mode | Configuration | State and reports | Cache |
+| --- | --- | --- | --- |
+| Portable | `config/config` beneath the installation | `var/`, including `var/reports/` | `var/cache/` |
+| User-wide | `$HOME/.config/pressharden/config` | `$HOME/.local/state/pressharden/` | `$HOME/.cache/pressharden/` |
 
-## Configuration policies
+User-wide locations respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME`. Explicit overrides are `PRESSHARDEN_CONFIG_FILE`, `PRESSHARDEN_STATE_DIR`, `PRESSHARDEN_CACHE_DIR`, and `PRESSHARDEN_REPORTS_DIR`.
 
-`status` and `wp-settings` collect the existing allowlisted effective WordPress policy dashboard; the fleet baseline is descriptive, not a universal secure recommendation. `lock`/`unlock` set `DISALLOW_FILE_MODS`; they do not change the separately configured dashboard editor policy. `file-mods status|on|off` is the explicit advanced equivalent.
+Configuration is **trusted shell code**: keep it owner-controlled, mode 600, and outside served directories. Invalid syntax, unreadable configuration, and loading errors stop before an operation starts. `./pressharden config-new` previews missing template options without executing or editing the existing file. It does not apply a configuration migration automatically. See [config/config.example](config/config.example) for the supported options.
 
-`wp-settings set` accepts `editor`, `cron`, `recovery`, `debug`, `debug-display`, `debug-log`, `script-debug`, `savequeries`, `force-ssl-admin`, and `alternate-cron` with `enabled|disabled`; `environment` with `production|staging|development|local`; `development` with `disabled|core|plugin|theme|all`.
+Use `PRESSHARDEN_DISCOVERY_DEPTH`, `PRESSHARDEN_EXCLUDE`, and optional `PRESSHARDEN_SITE_ALIASES_FILE` to describe your layout. [Website targeting and aliases](docs/SITE-TARGETS.md) explains the formats. Exclusions remain in force after narrowing a parent target.
 
-Both the original PHP configuration transaction engine and the shell fallback are retained. Private staging, value and PHP syntax validation, source identity checks, conditional atomic publication, readback and safe rollback protect `wp-config.php`. No live `sed` editing is used. Backups/metadata are in `state/config-transactions/`. If `proc_open` is unavailable, the shell engine requires `flock`. Read metadata before recovery; do not blindly overwrite a concurrently edited config.
+For targeted commands, use one positional website/directory or `--target SITE`. **Omitting the target selects the configured fleet**, as does explicit `all`. Unknown, empty, duplicate, excluded, or ambiguous targets stop; they never fall back to all. Keep state and backups outside every selected WordPress root. Backups are not automatically pruned, and no `PRESSWARDEN_*` compatibility variables are consumed.
 
-Automatic-update policy manages preferences rather than immediately updating WordPress. Core values are `minor|major|disabled`; plugin/theme values are `enable|disable`. Global blockers such as `DISALLOW_FILE_MODS` are reported separately. Plugin/theme preference backups are in `state/backups/auto-updates/`.
+## Make an explicit guarded change
 
-`salts rotate auth` refreshes the complete eight-key authentication group in a staged config and invalidates current login cookies/nonces. `salts rotate cache` operates only when a regular object-cache drop-in references `WP_CACHE_KEY_SALT`. Every generated key is checked for sufficient length, uniqueness and change; only digests are used in verification output. Original secret-bearing config backups remain private.
+First inspect the intended scope and decide the policy for that application. For example, to disable the WordPress dashboard file editor:
+
+```bash
+./pressharden wp-settings set editor disabled --target example.com
+./pressharden status -wp --verbose --target example.com
+```
+
+The change asks for approval by default. Configuration transactions use private backups and staging, validate the proposed value and PHP syntax, recheck the original file, publish conditionally, and read back the result. If verification fails, rollback occurs only when it can preserve concurrent changes. See [configuration transactions and recovery](docs/CONFIG-TRANSACTIONS.md).
+
+Other explicit commands include `lock`/`unlock`, supported `wp-settings set` policies, `auto-updates core|plugins|themes`, and `salts rotate auth|cache`. `lock` sets `DISALLOW_FILE_MODS`; it does not overwrite the separate editor preference. Automatic-update commands change preferences rather than immediately updating WordPress. Authentication salt rotation invalidates current login cookies/nonces; cache-salt rotation requires a compatible object-cache drop-in.
+
+Recovery locations beneath the state directory are `config-transactions/` for configuration and salt changes, `backups/auto-updates/` for plugin/theme preferences, and `backups/php-policy/` for local PHP changes. Inspect the operation's reported location and metadata before recovery. Backups can contain secrets. Do not blindly copy an older config over a newer external change; [PHP policy and transaction safety](docs/PHP-POLICY-SAFETY.md) explains failure interpretation.
 
 ## PHP configuration: configured is not effective
 
-`php status` distinguishes CLI values, root `.user.ini` values, contextual recommendations, and **UNKNOWN web-effective values**. `php inspect` preserves the existing detailed PHP/optional hosting-provider comparison. Neither automatically applies recommendations.
+`status -php` and `php status` read root `.user.ini` files as inert text. They do not bootstrap WordPress. WAF/autoload entries are identified for review without executing or disclosing their configured paths; the writer still refuses those files pending manual review. `php inspect` adds advanced runtime inspection, php.net lifecycle lookups, and optional hosting-provider comparisons. CLI values, local literals, and provider fields are distinct sources of information.
 
-`php set DIRECTIVE VALUE [target]` only writes a bounded, unambiguous, supported root `.user.ini`. First verify the actual web SAPI and export `PRESSHARDEN_PHP_WEB_SAPI=fpm-fcgi` or `cgi-fcgi`. Nondefault/disabled user-ini filenames and INI_SYSTEM-only directives are refused, not simulated. The operator attestation is not a measurement.
-
-Example, only after confirming the hosting runtime:
+`php set DIRECTIVE VALUE [target]` supports a bounded allowlist of error, resource/upload, and native PHP session settings. First verify the actual web SAPI with your hosting environment. Only then, for example:
 
 ```bash
-PRESSHARDEN_PHP_WEB_SAPI=fpm-fcgi ./pressharden php set display_errors Off example.com
+PRESSHARDEN_PHP_WEB_SAPI=fpm-fcgi ./pressharden php set display_errors Off --target example.com
 ```
 
-Supported directive families include error display/logging, upload/resource limits and native PHP session cookie settings. `expose_php`, `allow_url_fopen`, `allow_url_include` and other system-only settings are inspectable but may require the host to change them. There is no arbitrary `php.ini`/`.htaccess` editor or blanket dangerous-function disabling.
+The writer accepts verified-context `fpm-fcgi` or `cgi-fcgi` declarations, previews each site's change, and preserves a private recovery copy. That operator declaration is not a runtime measurement. System-only settings, complex values, and nondefault/disabled user-INI filenames can require hosting changes instead.
 
-An on-disk change exits **1 pending web verification**, not 0 claiming effectiveness. Hosting `php_admin_value`, nested overrides, caching and web PHP version differences still apply. No publicly accessible phpinfo/probe file is deployed. PHP policy recovery copies and metadata are in `state/backups/php-policy/`.
+An on-disk PHP change returns **1 pending web verification**. Host overrides, nested configuration, cache delays, and differing web PHP versions still apply. PressHarden does not deploy a public phpinfo/probe file or claim that a local write proves effective web policy. Consult [PHP policy semantics and recovery](docs/PHP-POLICY-SAFETY.md).
+
+## Troubleshooting
+
+| Symptom | Next step |
+| --- | --- |
+| No sites, or the expected name is missing | Check `config`, set the intended root, inspect depth/exclusions, then rerun `sites`. For opaque layouts, use a local alias. |
+| `doctor` reports missing WP-CLI | Make `wp` available to the same account. Static `status -php` remains available. |
+| WordPress status is incomplete | Check `doctor --target SITE`, WordPress/database access, and the trusted runtime. Warnings or malformed provider output are not accepted as policy data. |
+| Local PHP status is incomplete | Use `php status SITE` for the local refusal reason; inspect ownership, links, and `.user.ini` syntax before retrying. |
+| Configuration syntax or loading error | Correct the named private config. `config-new` can show template additions without loading it. |
+| Update/recovery lock remains | Follow [update recovery](docs/UPDATING.md); preserve the recovery workspace and inspect the failed operation before removing anything. |
 
 ## Safety and automation
 
-Mutations confirm on a terminal by default. `PRESSHARDEN_INTERACTIVE=0` is an explicit authorization for unattended operations—not a recommendation to apply changes fleet-wide. Backups, scope checks and verification are not bypassed. A failed site does not become a successful fleet; partial failures are reported.
+Leave confirmation enabled while validating the first staging target. `PRESSHARDEN_INTERACTIVE=0` explicitly authorizes unattended changes; backups, scope checks, locks, and verification still apply. A failed site does not erase changes already completed on another site, so inspect partial results before retrying a fleet operation.
 
-WP-CLI operations run as the current account. Plugin skip flags do not suppress MU-plugins; loading WordPress is not a sandbox. Do not run maintenance/policy changes as incident remediation. Preserve evidence and investigate a suspected compromise first. Stop other administrative processes before updates or mutations; private state/operation locks are product-specific, not a cross-product distributed lock.
-
-## Exit codes
-
-`0`: requested operation completed under its documented semantics (or no eligible change). `1`: declined operation, review/partial work, or PHP configuration awaiting web verification as applicable. `2+`: invalid request, incomplete discovery/verification, dependency or execution failure. Provider COMMAND COMPLETED means command success, not independently measured service effectiveness. Status findings and unsupported capabilities are labeled explicitly.
+Stop competing administrative processes before updates or mutations. Locks coordinate PressHarden operations, not every hosting panel, deployment process, or sibling application. Use independent backups and test recovery. Suspected compromise calls for evidence preservation and investigation before policy changes.
 
 ## Update and uninstall
+
+Finish other operations, then run these commands from your installed PressHarden directory:
+
+```bash
+./pressharden update
+./pressharden version
+./pressharden config-new
+```
+
+`update` defaults to the moving **`main` branch**. To select this release explicitly, use `PRESSHARDEN_REF=v0.1.2 ./pressharden update`. Git working trees refuse self-update by default; maintain reviewed checkouts through Git. `config-new` previews any missing configuration options for you to review.
 
 `./pressharden update` targets `marketania/PressHarden`, never a sibling and never threat feeds. For isolated validation or recovery, test/update with a local validated distribution archive:
 
@@ -115,15 +217,14 @@ WP-CLI operations run as the current account. Plugin skip flags do not suppress 
 PRESSHARDEN_UPDATE_ARCHIVE=/absolute/path/PressHarden.tar.gz ./pressharden update
 ```
 
-The updater preserves private configuration and state; a sibling archive fails identity validation. See [update and recovery details](docs/UPDATING.md). `./uninstall.sh` confirms removal of managed program files only. It preserves saved config, backups and state. `--yes` is the explicit noninteractive alternative; it does not purge private data.
+The updater preserves private configuration and state, validates product identity and source layout, and retains recovery data on failure. See [update and recovery details](docs/UPDATING.md), or run `./pressharden help update`.
+
+`./uninstall.sh` confirms removal of managed program files and preserves saved configuration, backups, and state. `--yes` authorizes the noninteractive alternative; it does not purge private data.
 
 ## Development and provenance
 
-For Codex/Claude coordination, review [GitHub collaboration](docs/GITHUB-COLLABORATION.md)
-and the current [handoff](docs/HANDOFF.md). Run `bash scripts/check.sh` for local checks.
+For Codex/Claude coordination, review [GitHub collaboration](docs/GITHUB-COLLABORATION.md) and the current [handoff](docs/HANDOFF.md). Run `bash scripts/check.sh` for the local validation gate; `bash tests/run.sh` runs the benign-fixture suite. Live WordPress integration requires explicitly isolated test sites/databases, never production websites.
 
-For AI-assisted repository work, see [AI-assisted development](docs/AI-DEVELOPMENT.md). The development configuration defaults trusted Codex projects to GPT-6 Astra; the CLI tool itself has no OpenAI runtime dependency.
-
-Run `bash tests/run.sh`. Tests use bounded temporary fixtures and mock external commands. Live fixture integration, when provided, must use an explicitly isolated test database; no production websites are used.
+See [AI-assisted development](docs/AI-DEVELOPMENT.md) for repository workflow guidance. Trusted Codex projects default to GPT-6 Astra; the CLI itself has no OpenAI runtime dependency.
 
 Separated from PressWarden 1.1.24 at `63adec182b4d3a20dbd5e24daa9b9fa0e98510b8`. See [provenance](PROVENANCE.md), [migration mapping](docs/MIGRATION.md), and [MIT license](LICENSE). PressWarden remains the security investigation tool; PressGarden handles routine maintenance and performance. Siblings are optional alternatives for other responsibilities, not dependencies.

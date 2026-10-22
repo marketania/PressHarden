@@ -56,6 +56,11 @@ _ph_update_validate_source() {
   [ -s "$src/VERSION" ] || { printf 'Update validation failed: VERSION is missing.\n' >&2; return 2; }
   [ -s "$src/pressharden" ] || { printf 'Update validation failed: pressharden CLI is missing.\n' >&2; return 2; }
   [ -s "$src/lib/_lib.sh" ] || { printf 'Update validation failed: runtime library is missing.\n' >&2; return 2; }
+  if grep -Fq 'lib/cli-ui.sh' "$src/pressharden"; then
+    for f in lib/cli-ui.sh checks/status.sh lib/status-summary.php lib/wp-policy-collect.sh lib/wp-policy-input.php; do
+      [ -s "$src/$f" ] && [ ! -L "$src/$f" ] || { printf 'Update validation failed: required file %s is missing.\n' "$f" >&2; return 2; }
+    done
+  fi
 
   [ "$(cat "$src/PRODUCT" 2>/dev/null)" = "PressHarden" ] || { printf "Update identity mismatch.\n" >&2; return 2; }
   version=$(tr -d '[:space:]' < "$src/VERSION" 2>/dev/null || true)
