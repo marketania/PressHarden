@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-10-25
 
 - Add `backups prune --older-than=DAYS [--apply]` for PressHarden's own recovery
   copies. Preview by default; only `COMPLETED` wp-config transactions and
