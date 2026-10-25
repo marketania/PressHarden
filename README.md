@@ -8,7 +8,7 @@
 
 PressHarden is a standalone MIT-licensed Linux/Bash/PHP application. It contains its own discovery, targeting, lifecycle and relevant operation code. Neither sibling repository is required. It is not a wrapper around PressWarden.
 
-**This guide describes PressHarden 0.1.2**, including combined `status`/`check`, area selectors, colored summaries, and grouped help. Read the [0.1.2 release notes](docs/releases/0.1.2.md) for the changes. Existing users can follow [Update and uninstall](#update-and-uninstall), then check `./pressharden version` and `./pressharden help`.
+**This guide describes PressHarden 0.1.3**, including combined `status`/`check`, area selectors, colored summaries, and grouped help. Read the [0.1.3 release notes](docs/releases/0.1.3.md) for the changes. Existing users can follow [Update and uninstall](#update-and-uninstall), then check `./pressharden version` and `./pressharden help`.
 
 ## Other Press tools
 
@@ -32,7 +32,7 @@ Install outside website document roots, run as the site owner, and begin on a st
 
 ### Recommended: install the exact source you reviewed
 
-Download `PressHarden-0.1.2.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the [v0.1.2 release](https://github.com/marketania/PressHarden/releases/tag/v0.1.2). Verify the archive against the checksums, extract it, and review its source and `install.sh`. Other published [release assets](https://github.com/marketania/PressHarden/releases) have their own bundled help and release notes.
+Download `PressHarden-0.1.3.tar.gz`, `SHA256SUMS`, and `SOURCE.json` from the [v0.1.3 release](https://github.com/marketania/PressHarden/releases/tag/v0.1.3). Verify the archive against the checksums, extract it, and review its source and `install.sh`. Other published [release assets](https://github.com/marketania/PressHarden/releases) have their own bundled help and release notes.
 
 From the source directory:
 
@@ -209,7 +209,7 @@ Finish other operations, then run these commands from your installed PressHarden
 ./pressharden config-new
 ```
 
-`update` defaults to the moving **`main` branch**. To select this release explicitly, use `PRESSHARDEN_REF=v0.1.2 ./pressharden update`. Git working trees refuse self-update by default; maintain reviewed checkouts through Git. `config-new` previews any missing configuration options for you to review.
+`update` defaults to the moving **`main` branch**. To select this release explicitly, use `PRESSHARDEN_REF=v0.1.3 ./pressharden update`. Git working trees refuse self-update by default; maintain reviewed checkouts through Git. `config-new` previews any missing configuration options for you to review.
 
 `./pressharden update` targets `marketania/PressHarden`, never a sibling and never threat feeds. For isolated validation or recovery, test/update with a local validated distribution archive:
 
