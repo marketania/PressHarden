@@ -124,6 +124,8 @@ Everyday commands
 
 Manage
   config / config-new / update / version
+  backups prune --older-than=DAYS [--apply]
+                              Preview/remove old successful recovery copies
   help setup / help update    First-site setup and program update guidance
   help configure              Explicit policy changes and recovery
   help all                    Complete command reference
@@ -350,6 +352,45 @@ confirm_wp_setting_change() {
 }
 
 
+# Manual backup retention for this tool's private state only. Preview by
+# default; --apply removes exactly the previewed backups after confirmation.
+ph_backups_prune() {
+  local state days='' apply=0 arg preview list kind id extra n=0 total=0 kept=0 rc
+  for arg in "$@"; do
+    case "$arg" in
+      --older-than=*) days=${arg#*=} ;;
+      --apply) apply=1 ;;
+      *) printf 'Usage: ./pressharden backups prune --older-than=DAYS [--apply]\n' >&2; return 2 ;;
+    esac
+  done
+  [[ "$days" =~ ^[1-9][0-9]{0,4}$ ]] || { printf 'Usage: ./pressharden backups prune --older-than=DAYS [--apply]\n' >&2; return 2; }
+  command -v php >/dev/null 2>&1 || { printf 'Backup retention requires PHP CLI.\n' >&2; return 2; }
+  if [ "$PRESSHARDEN_PORTABLE" = 1 ]; then state="${PRESSHARDEN_STATE_DIR:-$PRESSHARDEN_DIR/var}"
+  else state="${PRESSHARDEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/pressharden}"; fi
+  preview=$(mktemp "${TMPDIR:-/tmp}/pressharden-prune.XXXXXX") || return 2
+  list=$(mktemp "${TMPDIR:-/tmp}/pressharden-prune-ids.XXXXXX") || { rm -f -- "$preview"; return 2; }
+  php "$PRESSHARDEN_DIR/lib/backup-retention.php" preview "$state" "$days" > "$preview" || { rm -f -- "$preview" "$list"; return 2; }
+  printf 'PressHarden backup retention preview (older than %s days; newest per site and category kept)\n' "$days"
+  while IFS=$'\t' read -r kind id extra; do
+    case "$kind" in
+      ELIGIBLE) n=$((n+1)); total=$((total+extra)); printf '  PRUNE  %s  %s bytes\n' "$id" "$extra"; printf '%s\n' "$id" >> "$list" ;;
+      KEPT) kept=$((kept+1)); printf '  KEEP   %s  %s\n' "$id" "$extra" ;;
+    esac
+  done < "$preview"
+  rm -f -- "$preview"
+  printf 'Eligible: %s backup(s), %s logical bytes. Kept: %s.\n' "$n" "$total" "$kept"
+  if [ "$apply" -ne 1 ] || [ "$n" -eq 0 ]; then
+    [ "$n" -eq 0 ] || printf 'PREVIEW: nothing deleted. Add --apply to remove these backups after confirmation.\n'
+    rm -f -- "$list"; return 0
+  fi
+  # shellcheck disable=SC1091
+  . "$PRESSHARDEN_DIR/lib/operations.sh"
+  ph_confirm "Permanently delete $n backup(s)? Removed backups cannot be used for recovery" || { rm -f -- "$list"; return 1; }
+  php "$PRESSHARDEN_DIR/lib/backup-retention.php" apply "$state" "$days" "$list"; rc=$?
+  rm -f -- "$list"
+  return "$rc"
+}
+
 cmd="${1:-help}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
   -V|--version|version) [ "$#" -eq 0 ] && [ "$_ph_named_target" -eq 0 ] || { printf 'Usage: pressharden version\n' >&2; exit 2; }; printf 'PressHarden %s\n' "$VERSION" ;;
@@ -482,6 +523,9 @@ case "$cmd" in
         exec bash "$PRESSHARDEN_DIR/checks/php-policy.sh" set "$setting" "$value" ;;
       *) printf 'Use php status, php inspect or php set.\n' >&2; exit 2 ;;
     esac ;;
+  backups)
+    [ "$_ph_named_target" -eq 0 ] && [ "${1:-}" = prune ] || { printf 'Usage: ./pressharden backups prune --older-than=DAYS [--apply]\n' >&2; exit 2; }
+    shift; ph_backups_prune "$@"; exit $? ;;
   salts)
     [ "$#" -ge 2 ] && [ "$#" -le 3 ] && [ "$1" = rotate ] || { printf 'Usage: pressharden salts rotate auth|cache [target]\n' >&2; exit 2; }
     kind="$2"; shift 2

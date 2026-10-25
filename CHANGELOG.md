@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `backups prune --older-than=DAYS [--apply]` for PressHarden's own recovery
+  copies. Preview by default; only `COMPLETED` wp-config transactions and
+  successful `php-policy` backups are eligible; the newest copy per site and
+  category is kept; the previewed set must match exactly; removals are logged.
+
 ## 0.1.2 — 2026-10-21
 
 - Validate saved shell configuration before loading it and stop on unreadable files or loading errors; malformed configuration can no longer continue into a partially configured fleet operation. Keep `config-new` available without loading the file.
