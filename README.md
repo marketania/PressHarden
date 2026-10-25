@@ -151,7 +151,7 @@ Configuration is **trusted shell code**: keep it owner-controlled, mode 600, and
 
 Use `PRESSHARDEN_DISCOVERY_DEPTH`, `PRESSHARDEN_EXCLUDE`, and optional `PRESSHARDEN_SITE_ALIASES_FILE` to describe your layout. [Website targeting and aliases](docs/SITE-TARGETS.md) explains the formats. Exclusions remain in force after narrowing a parent target.
 
-For targeted commands, use one positional website/directory or `--target SITE`. **Omitting the target selects the configured fleet**, as does explicit `all`. Unknown, empty, duplicate, excluded, or ambiguous targets stop; they never fall back to all. Keep state and backups outside every selected WordPress root. Backups are not automatically pruned, and no `PRESSWARDEN_*` compatibility variables are consumed.
+For targeted commands, use one positional website/directory or `--target SITE`. **Omitting the target selects the configured fleet**, as does explicit `all`. Unknown, empty, duplicate, excluded, or ambiguous targets stop; they never fall back to all. Keep state and backups outside every selected WordPress root. Backups are not automatically pruned, and no `PRESSWARDEN_*` compatibility variables are consumed. `backups prune --older-than=DAYS` previews old recovery copies (wp-config transactions and per-category backups such as `php-policy`) and deletes nothing. `--apply` removes exactly the previewed set after confirmation. Only copies whose metadata records success are eligible, the newest copy per site and category is always kept, and each removal is logged to `state/backups/prune-log.tsv`.
 
 ## Make an explicit guarded change
 
